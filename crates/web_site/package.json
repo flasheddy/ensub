@@ -1,0 +1,12 @@
+{
+  "name": "ensub-web-site",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "test": "bun test tests/*.test.mjs",
+    "build": "bun scripts/build.mjs",
+    "verify:dist": "bun scripts/verify-dist.mjs",
+    "serve": "bun scripts/serve.mjs"
+  }
+}

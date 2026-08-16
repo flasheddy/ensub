@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Ensub
+Comment=English immersion reader and spaced-repetition library
+Exec=ensub-gui
+Icon=dev.ensub.Ensub
+Terminal=false
+Categories=Education;Utility;
+StartupNotify=true
+StartupWMClass=dev.ensub.Ensub

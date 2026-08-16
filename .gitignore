@@ -1,0 +1,9 @@
+/target/
+/.worktrees/
+/crates/web_site/dist/
+/crates/web_site/pkg/
+/.private/
+/prd.md
+/docs/superpowers/
+.vercel
+.env*

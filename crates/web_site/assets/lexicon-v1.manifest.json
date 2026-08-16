@@ -1,0 +1,17 @@
+{
+  "format": "ensub-browser-lexicon",
+  "schemaVersion": 1,
+  "asset": "lexicon-v1.postcard.gz",
+  "compressedBytes": 1862082,
+  "uncompressedBytes": 4911936,
+  "compressedSha256": "484ae77d87aead20341828f6c43fc54f927c58ffa75a1a888583869f2cd6758c",
+  "lexemeCount": 32463,
+  "formCount": 49207,
+  "definitionSource": "Open English WordNet 2025",
+  "pronunciationSource": "CMUdict 0.7b via cmudict-fast 0.8.0",
+  "licenses": [
+    "CC-BY-4.0",
+    "Princeton-WordNet-3.0",
+    "CMUdict"
+  ]
+}

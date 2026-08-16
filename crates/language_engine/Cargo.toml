@@ -1,0 +1,20 @@
+[package]
+name = "language_engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+document = ["dep:pulldown-cmark"]
+
+[dependencies]
+chrono.workspace = true
+core_engine = { path = "../core_engine" }
+postcard.workspace = true
+pulldown-cmark = { workspace = true, optional = true }
+serde.workspace = true
+sentencex.workspace = true
+thiserror.workspace = true
+unicode-segmentation.workspace = true
+uuid.workspace = true

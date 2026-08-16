@@ -1,0 +1,24 @@
+[package]
+name = "ensub-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "esb"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+console.workspace = true
+core_engine = { path = "../core_engine" }
+dialoguer.workspace = true
+dirs.workspace = true
+ensub-sqlite = { path = "../sqlite_storage" }
+ensub-tui = { path = "../tui" }
+language_engine = { path = "../language_engine" }
+
+[dev-dependencies]
+tempfile.workspace = true

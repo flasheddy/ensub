@@ -1,0 +1,22 @@
+[package]
+name = "ensub-applet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "ensub_applet"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ensub-applet"
+path = "src/main.rs"
+
+[dependencies]
+core_engine = { path = "../core_engine" }
+ensub-sqlite = { path = "../sqlite_storage" }
+anyhow.workspace = true
+chrono.workspace = true
+libcosmic = { workspace = true, features = ["applet-token", "tokio", "wayland"] }
+thiserror.workspace = true
+tokio.workspace = true

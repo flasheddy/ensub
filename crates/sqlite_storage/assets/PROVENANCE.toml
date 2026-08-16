@@ -1,0 +1,36 @@
+format_version = 1
+generated_asset = "lexicon-v1.sqlite3.zst"
+generated_asset_sha256 = "2065aad3c76357341f2c4e66cc1125f6e5d8afd8f621112bad50bd16c38b3c1f"
+generated_database_sha256 = "cad6ada703bee58c93c1d84fbd285a711f63cbd9666cde1567b136c9bbefd51b"
+schema_version = 1
+lexeme_count = 32463
+form_count = 49207
+sense_count = 78463
+
+[[sources]]
+name = "Open English WordNet"
+version = "2025"
+project_url = "https://github.com/globalwordnet/english-wordnet"
+artifact = "english-wordnet-2025.xml.gz"
+artifact_sha256 = "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe"
+use = "lemmas, parts of speech, and definitions"
+license = "CC-BY-4.0"
+license_files = [
+  "THIRD_PARTY_LICENSES/OEWN-CC-BY-4.0.txt",
+  "THIRD_PARTY_LICENSES/PRINCETON-WORDNET-3.0.txt",
+]
+
+[[sources]]
+name = "CMU Pronouncing Dictionary"
+version = "0.7b (data distributed by cmudict-fast 0.8.0)"
+project_url = "https://github.com/cmusphinx/cmudict"
+artifact = "cmudict.dict"
+artifact_sha256 = "59d6398f55297e59afb2ca3276380827524c0940fcbbfcd19022bb76fd55f719"
+use = "ARPAbet pronunciations converted to broad General American IPA"
+license = "CMUdict permissive license"
+license_files = ["THIRD_PARTY_LICENSES/CMUDICT.txt"]
+
+[generation]
+tool = "ensub-lexicon-builder"
+zstd_level = 19
+notes = "Entries without both definitions and pronunciations are omitted; generated forms include deterministic morphology candidates."

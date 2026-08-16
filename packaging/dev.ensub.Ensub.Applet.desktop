@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ensub Applet
+Exec=ensub-applet
+Icon=dev.ensub.Ensub-symbolic
+Terminal=false
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicShrinkable=true
+X-HostWaylandDisplay=true
+X-CosmicHoverPopup=Auto
