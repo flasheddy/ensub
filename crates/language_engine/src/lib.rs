@@ -9,6 +9,8 @@ mod document;
 mod lexicon;
 mod morphology;
 mod parser;
+mod podcast_feed;
+mod transcript;
 
 pub use browser_lexicon::{
     BrowserLexicon, BrowserLexiconAsset, BrowserLexiconError, BrowserLexiconForm,
@@ -25,3 +27,8 @@ pub use parser::{
     extract_candidates, segment_text, Candidate, ParseOptions, ParseReport, SentenceSpan,
     TextSegmentation, WordSpan,
 };
+pub use podcast_feed::{
+    parse_podcast_feed, PodcastFeedIssue, PodcastFeedIssueDisposition, PodcastFeedParseError,
+    PodcastFeedParseReport,
+};
+pub use transcript::{parse_transcript, TimestampEndpoint, TranscriptParseError};

@@ -48,7 +48,7 @@ flowchart TB
 | Path | Cargo package | Responsibility |
 |---|---|---|
 | `crates/core_engine` | `core_engine` | Owned domain records, SM-2 scheduling, native-agnostic storage contracts, and library/history read models |
-| `crates/language_engine` | `language_engine` | Sentence and word segmentation, morphology, capture construction, lexicon contracts, browser lexicon, and optional document parsing |
+| `crates/language_engine` | `language_engine` | Portable podcast feed, transcript, sentence, word, morphology, lexicon, capture, and optional document parsing |
 | `crates/llm_client` | `ensub-llm` | Optional client for contextual disambiguation through OpenAI-compatible endpoints |
 | `crates/theme` | `ensub-theme` | Dependency-free semantic RGB roles, Catppuccin Mocha Mauve default, and deterministic CSS export |
 | `crates/sqlite_storage` | `ensub-sqlite` | SQLite implementation, migrations, standard paths, and native bundled lexicon extraction |
@@ -56,7 +56,7 @@ flowchart TB
 | `crates/tui` | `ensub-tui` | Ratatui reader/review model, event loop, effects, terminal safety, and rendering |
 | `crates/cosmic_gui` | `ensub-gui` | COSMIC application state, native effects, GUI reader, library, dashboard, capture HUD, and review views |
 | `crates/cosmic_applet` | `ensub-applet` | COSMIC panel badge, popover review state, and capture-HUD launcher |
-| `crates/wasm_bridge` | `ensub-wasm` | Browser DTOs, WASM bindings, versioned snapshot adapter, and `localStorage` backend |
+| `crates/wasm_bridge` | `ensub-wasm` | Browser DTOs, standalone ingestion bindings, versioned snapshot adapter, and `localStorage` backend |
 | `crates/web_sandbox` | none | Offline static Ensub Core reference harness, bundled WASM/lexicon assets, Web Locks coordination, and service worker |
 | `crates/web_site` | none | Separate optional Ensub Context assistant using anonymous Supabase sessions and an authenticated LLM Edge Function |
 | `tools/lexicon_builder` | `ensub-lexicon-builder` | Reproducible native and browser lexicon artifact generation |
@@ -104,6 +104,31 @@ part-of-speech, and definition model.
 The optional `document` feature adds Markdown/plain-text blocks, inline style
 ranges, and word tokens for the TUI and GUI readers without coupling the
 language crate to either toolkit.
+
+Portable podcast ingestion follows the same inward dependency direction:
+
+```text
+RSS 2.0 / Atom 1.0 bytes
+  -> language_engine namespace-aware parser
+  -> PodcastFeed + valid PodcastEpisode records + typed item issues
+
+WebVTT / SRT text + TranscriptResource
+  -> language_engine caption parser and tokenizer
+  -> validated TranscriptDocument with source-ordered cues
+```
+
+`core_engine` owns these media DTOs and their cross-platform invariants.
+`language_engine` owns raw-input parsing, URL normalization, format-specific
+timestamp handling, and stable typed parse errors. Fatal feed errors reject the
+document; invalid feed entries or metadata are reported as item issues with an
+explicit disposition. Transcript parsing rejects missing or invalid timestamps,
+invalid cue bounds, and decreasing cue start times without reordering input.
+
+`ensub-wasm` exposes `parsePodcastFeed` and `parseTranscript` as standalone
+browser functions. They convert Rust DTOs to camel-case browser DTOs, publication
+times to epoch milliseconds, and UTF-8 token byte spans to UTF-16 offsets. These
+functions are independent of `EnsubSandbox` and do not read or mutate snapshot
+storage.
 
 `ensub-llm` is a separate, provider-neutral network adapter. No current
 application surface depends on it, so the bundled lexicon remains the default

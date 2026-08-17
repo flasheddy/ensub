@@ -11,6 +11,7 @@ use language_engine::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::text::utf16_offset as utf16_offset_raw;
 use crate::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
 
 const DEFAULT_MAX_CANDIDATES: usize = 100;
@@ -220,9 +221,7 @@ fn candidate_dto(text: &str, candidate: &Candidate) -> Result<CandidateDto, Sand
 }
 
 fn utf16_offset(text: &str, byte_offset: usize) -> Result<usize, SandboxError> {
-    text.get(..byte_offset)
-        .map(|prefix| prefix.encode_utf16().count())
-        .ok_or(SandboxError::InvalidTextBoundary(byte_offset))
+    utf16_offset_raw(text, byte_offset).ok_or(SandboxError::InvalidTextBoundary(byte_offset))
 }
 
 fn candidate_id(candidate: &Candidate) -> String {

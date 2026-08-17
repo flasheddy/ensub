@@ -3399,10 +3399,12 @@ dependencies = [
  "core_engine",
  "postcard",
  "pulldown-cmark",
+ "quick-xml 0.39.4",
  "sentencex",
  "serde",
  "thiserror 2.0.20",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 

@@ -1,6 +1,6 @@
 #![cfg(target_arch = "wasm32")]
 
-use js_sys::Uint8Array;
+use js_sys::{Reflect, Uint8Array};
 use language_engine::{
     BrowserLexiconAsset, BrowserLexiconForm, Definition, LexiconEntry,
     BROWSER_LEXICON_SCHEMA_VERSION,
@@ -8,7 +8,9 @@ use language_engine::{
 use wasm_bindgen_test::*;
 
 use ensub_wasm::{
-    CaptureParsedInput, EnsubSandbox, ParseInput, ParseOutput, StatsInput, StatsOutput,
+    parse_podcast_feed, parse_transcript, CaptureParsedInput, EnsubSandbox, ParseInput,
+    ParseOutput, PodcastFeedParseOutputDto, StatsInput, StatsOutput, TranscriptDocumentDto,
+    TranscriptResourceDto,
 };
 
 wasm_bindgen_test_configure!(run_in_browser);
@@ -88,4 +90,58 @@ fn exported_sandbox_round_trips_javascript_dtos_through_local_storage() {
     assert_eq!(stats.total_cards, 1);
     assert_eq!(stats.due_cards, 1);
     storage.remove_item(key).expect("fixture must clean up");
+}
+
+#[wasm_bindgen_test]
+fn exported_ingestion_functions_round_trip_dtos_and_structured_errors() {
+    let rss = br#"<rss version="2.0"><channel><title>Browser Feed</title><item>
+      <title>Browser Episode</title><enclosure url="/audio.mp3" type="audio/mpeg" />
+    </item></channel></rss>"#;
+    let feed = parse_podcast_feed(
+        "https://media.example.test/feed.xml".to_string(),
+        Uint8Array::from(rss.as_slice()),
+    )
+    .expect("browser feed must parse");
+    let feed: PodcastFeedParseOutputDto =
+        serde_wasm_bindgen::from_value(feed).expect("feed DTO must deserialize");
+    assert_eq!(feed.episodes[0].title, "Browser Episode");
+
+    let resource = TranscriptResourceDto {
+        url: "https://media.example.test/captions.vtt".to_string(),
+        mime_type: "text/vtt".to_string(),
+        format: Some(core_engine::TranscriptFormat::WebVtt),
+        language: Some("en".to_string()),
+        relation: Some("captions".to_string()),
+    };
+    let resource = serde_wasm_bindgen::to_value(&resource).expect("resource must serialize");
+    let transcript = parse_transcript(
+        resource.clone(),
+        "WEBVTT\n\n00:00.000 --> 00:01.000\nBrowser text".to_string(),
+    )
+    .expect("browser transcript must parse");
+    let transcript: TranscriptDocumentDto =
+        serde_wasm_bindgen::from_value(transcript).expect("transcript DTO must deserialize");
+    assert_eq!(transcript.cues[0].text, "Browser text");
+
+    let error = parse_transcript(resource, "WEBVTT\n\nmissing timing".to_string())
+        .expect_err("malformed transcript must return an EnsubError");
+    assert_eq!(
+        Reflect::get(&error, &"code".into())
+            .expect("error code must exist")
+            .as_string()
+            .as_deref(),
+        Some("transcript_missing_timing_line")
+    );
+    assert_eq!(
+        Reflect::get(&error, &"line".into())
+            .expect("error line must exist")
+            .as_f64(),
+        Some(3.0)
+    );
+    assert_eq!(
+        Reflect::get(&error, &"cueIndex".into())
+            .expect("error cue index must exist")
+            .as_f64(),
+        Some(0.0)
+    );
 }

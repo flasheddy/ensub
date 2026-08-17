@@ -50,6 +50,7 @@ ensub-theme = { path = "crates/theme" }
 tokio = { version = "1", features = ["process", "rt", "time"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "=0.2.0"
+url = "2.5"
 uuid = { version = "1.24", features = ["v5"] }
 wasm-bindgen = "0.2.127"
 wasm-bindgen-test = "0.3.77"

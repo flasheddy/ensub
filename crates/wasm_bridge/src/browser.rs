@@ -4,8 +4,9 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    CaptureParsedInput, DueReviewsInput, LocalStorageBackend, ParseInput, ReviewInput, Sandbox,
-    SandboxError, SnapshotAccess, SnapshotError, StatsInput,
+    parse_podcast_feed_dto, parse_transcript_dto, CaptureParsedInput, DueReviewsInput,
+    IngestionError, LocalStorageBackend, ParseInput, ReviewInput, Sandbox, SandboxError,
+    SnapshotAccess, SnapshotError, StatsInput, TranscriptResourceDto,
 };
 
 #[wasm_bindgen]
@@ -69,6 +70,17 @@ impl EnsubSandbox {
     }
 }
 
+#[wasm_bindgen(js_name = parsePodcastFeed)]
+pub fn parse_podcast_feed(source_url: String, xml: Uint8Array) -> Result<JsValue, JsValue> {
+    to_js(&parse_podcast_feed_dto(&source_url, &xml.to_vec()).map_err(ingestion_error)?)
+}
+
+#[wasm_bindgen(js_name = parseTranscript)]
+pub fn parse_transcript(resource: JsValue, source: String) -> Result<JsValue, JsValue> {
+    let resource: TranscriptResourceDto = from_js(resource)?;
+    to_js(&parse_transcript_dto(resource, &source).map_err(ingestion_error)?)
+}
+
 fn from_js<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
     serde_wasm_bindgen::from_value(value)
         .map_err(|error| js_error("invalid_argument", &error.to_string()))
@@ -98,6 +110,34 @@ fn sandbox_error(error: SandboxError) -> JsValue {
         SandboxError::Core(_) => "scheduling_overflow",
     };
     js_error(code, &error.to_string())
+}
+
+fn ingestion_error(error: IngestionError) -> JsValue {
+    let value = js_error(error.code(), &error.to_string());
+    set_optional_number(&value, "byteOffset", error.byte_offset());
+    set_optional_number(
+        &value,
+        "line",
+        error.line().and_then(|line| u64::try_from(line).ok()),
+    );
+    set_optional_number(
+        &value,
+        "cueIndex",
+        error
+            .cue_index()
+            .and_then(|cue_index| u64::try_from(cue_index).ok()),
+    );
+    value
+}
+
+fn set_optional_number(error: &JsValue, property: &str, value: Option<u64>) {
+    if let Some(value) = value {
+        let _ = Reflect::set(
+            error,
+            &JsValue::from_str(property),
+            &JsValue::from_f64(value as f64),
+        );
+    }
 }
 
 fn js_error(code: &str, message: &str) -> JsValue {
