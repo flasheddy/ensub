@@ -1,12 +1,13 @@
-use js_sys::{Error, Reflect, Uint8Array};
+use js_sys::{Error, Number, Reflect, Uint8Array};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::{
     parse_podcast_feed_dto, parse_transcript_dto, CaptureParsedInput, DueReviewsInput,
-    IngestionError, LocalStorageBackend, ParseInput, ReviewInput, Sandbox, SandboxError,
-    SnapshotAccess, SnapshotError, StatsInput, TranscriptResourceDto,
+    IngestionError, LocalStorageBackend, ParseInput, PlayerWorkspace, PlayerWorkspaceError,
+    ReviewInput, Sandbox, SandboxError, SnapshotAccess, SnapshotError, StatsInput,
+    TranscriptResourceDto,
 };
 
 #[wasm_bindgen]
@@ -70,6 +71,92 @@ impl EnsubSandbox {
     }
 }
 
+#[wasm_bindgen]
+pub struct EnsubPlayerWorkspace {
+    inner: PlayerWorkspace,
+}
+
+#[wasm_bindgen]
+impl EnsubPlayerWorkspace {
+    #[wasm_bindgen(constructor)]
+    pub fn new(snapshot_bytes: Uint8Array) -> Result<EnsubPlayerWorkspace, JsValue> {
+        let inner = PlayerWorkspace::open(&snapshot_bytes.to_vec()).map_err(player_error)?;
+        Ok(Self { inner })
+    }
+
+    pub fn view(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.view())
+    }
+
+    #[wasm_bindgen(js_name = importFeed)]
+    pub fn import_feed(
+        &mut self,
+        source_url: String,
+        xml_bytes: Uint8Array,
+        fetched_at_ms: f64,
+    ) -> Result<JsValue, JsValue> {
+        let fetched_at_ms = safe_milliseconds_i64(fetched_at_ms)?;
+        let view = self
+            .inner
+            .import_feed(&source_url, &xml_bytes.to_vec(), fetched_at_ms)
+            .map_err(player_error)?;
+        to_js(&view)
+    }
+
+    #[wasm_bindgen(js_name = selectEpisode)]
+    pub fn select_episode(&mut self, episode_id: String) -> Result<JsValue, JsValue> {
+        let opened = self
+            .inner
+            .select_episode(&episode_id)
+            .map_err(player_error)?;
+        to_js(&opened)
+    }
+
+    #[wasm_bindgen(js_name = selectTranscript)]
+    pub fn select_transcript(
+        &mut self,
+        episode_id: String,
+        transcript_url: String,
+    ) -> Result<JsValue, JsValue> {
+        let opened = self
+            .inner
+            .select_transcript(&episode_id, &transcript_url)
+            .map_err(player_error)?;
+        to_js(&opened)
+    }
+
+    #[wasm_bindgen(js_name = cacheTranscript)]
+    pub fn cache_transcript(
+        &mut self,
+        episode_id: String,
+        transcript_url: String,
+        source: String,
+        fetched_at_ms: f64,
+    ) -> Result<JsValue, JsValue> {
+        let fetched_at_ms = safe_milliseconds_i64(fetched_at_ms)?;
+        let opened = self
+            .inner
+            .cache_transcript(&episode_id, &transcript_url, &source, fetched_at_ms)
+            .map_err(player_error)?;
+        to_js(&opened)
+    }
+
+    #[wasm_bindgen(js_name = syncAt)]
+    pub fn sync_at(&self, playback_position_ms: f64) -> Result<JsValue, JsValue> {
+        let playback_position_ms = safe_milliseconds_u64(playback_position_ms)?;
+        let sync = self
+            .inner
+            .sync_at(playback_position_ms)
+            .map_err(player_error)?;
+        to_js(&sync)
+    }
+
+    pub fn snapshot(&self) -> Result<Uint8Array, JsValue> {
+        let snapshot = self.inner.snapshot().map_err(player_error)?;
+        Ok(Uint8Array::from(snapshot.as_slice()))
+    }
+}
+
 #[wasm_bindgen(js_name = parsePodcastFeed)]
 pub fn parse_podcast_feed(source_url: String, xml: Uint8Array) -> Result<JsValue, JsValue> {
     to_js(&parse_podcast_feed_dto(&source_url, &xml.to_vec()).map_err(ingestion_error)?)
@@ -128,6 +215,28 @@ fn ingestion_error(error: IngestionError) -> JsValue {
             .and_then(|cue_index| u64::try_from(cue_index).ok()),
     );
     value
+}
+
+fn player_error(error: PlayerWorkspaceError) -> JsValue {
+    match error {
+        PlayerWorkspaceError::Ingestion(error) => ingestion_error(error),
+        error => js_error(error.code(), &error.to_string()),
+    }
+}
+
+fn safe_milliseconds_i64(value: f64) -> Result<i64, JsValue> {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > Number::MAX_SAFE_INTEGER
+    {
+        return Err(js_error(
+            "invalid_argument",
+            "milliseconds must be a finite, non-negative safe integer",
+        ));
+    }
+    Ok(value as i64)
+}
+
+fn safe_milliseconds_u64(value: f64) -> Result<u64, JsValue> {
+    safe_milliseconds_i64(value).map(|value| value as u64)
 }
 
 fn set_optional_number(error: &JsValue, property: &str, value: Option<u64>) {

@@ -8,10 +8,56 @@ use language_engine::{
 use wasm_bindgen_test::*;
 
 use ensub_wasm::{
-    parse_podcast_feed, parse_transcript, CaptureParsedInput, EnsubSandbox, ParseInput,
-    ParseOutput, PodcastFeedParseOutputDto, StatsInput, StatsOutput, TranscriptDocumentDto,
-    TranscriptResourceDto,
+    parse_podcast_feed, parse_transcript, CaptureParsedInput, EnsubPlayerWorkspace, EnsubSandbox,
+    EpisodeOpenDto, ParseInput, ParseOutput, PlayerWorkspaceDto, PodcastFeedParseOutputDto,
+    StatsInput, StatsOutput, TranscriptDocumentDto, TranscriptResourceDto, TranscriptSyncDto,
 };
+
+#[wasm_bindgen_test]
+fn exported_player_workspace_round_trips_cache_and_syncs_cues() {
+    let rss = br#"<rss version="2.0"><channel><title>Player</title><item>
+      <guid>player-episode</guid><title>Player Episode</title>
+      <enclosure url="https://media.example.test/audio.mp3" type="audio/mpeg" />
+      <podcast:transcript xmlns:podcast="https://podcastindex.org/namespace/1.0"
+        url="https://media.example.test/captions.vtt" type="text/vtt" language="en" />
+    </item></channel></rss>"#;
+    let mut workspace = EnsubPlayerWorkspace::new(Uint8Array::new_with_length(0))
+        .expect("empty player cache must open");
+    let view = workspace
+        .import_feed(
+            "https://media.example.test/feed.xml".to_string(),
+            Uint8Array::from(rss.as_slice()),
+            1_787_000_000_000.0,
+        )
+        .expect("feed must import");
+    let view: PlayerWorkspaceDto =
+        serde_wasm_bindgen::from_value(view).expect("view must deserialize");
+    let episode_id = view.episodes[0].identity.internal_id.clone();
+    let opened = workspace
+        .select_episode(episode_id.clone())
+        .expect("episode must select");
+    let _: EpisodeOpenDto =
+        serde_wasm_bindgen::from_value(opened).expect("episode must deserialize");
+    workspace
+        .cache_transcript(
+            episode_id,
+            "https://media.example.test/captions.vtt".to_string(),
+            "WEBVTT\n\n00:01.000 --> 00:02.000\nPlayer cue".to_string(),
+            1_787_000_000_100.0,
+        )
+        .expect("transcript must cache");
+    let sync: TranscriptSyncDto =
+        serde_wasm_bindgen::from_value(workspace.sync_at(1_500.0).expect("cue must sync"))
+            .expect("sync must deserialize");
+    assert_eq!(sync.active_cue_indices, [0]);
+
+    let snapshot = workspace.snapshot().expect("snapshot must encode");
+    let restored = EnsubPlayerWorkspace::new(snapshot).expect("snapshot must restore");
+    let restored_view: PlayerWorkspaceDto =
+        serde_wasm_bindgen::from_value(restored.view().expect("restored view must serialize"))
+            .expect("restored view must deserialize");
+    assert_eq!(restored_view.revision, 3);
+}
 
 wasm_bindgen_test_configure!(run_in_browser);
 

@@ -289,7 +289,7 @@ pub fn parse_transcript_dto(
     transcript_document_dto(&document)
 }
 
-fn transcript_document_dto(
+pub(crate) fn transcript_document_dto(
     document: &TranscriptDocument,
 ) -> Result<TranscriptDocumentDto, IngestionError> {
     let mut cues = Vec::with_capacity(document.cues().len());

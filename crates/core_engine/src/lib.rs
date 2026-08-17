@@ -19,10 +19,11 @@ pub use domain::{
 };
 pub use error::{CoreError, MediaDomainError};
 pub use media::{
-    calculate_padded_audio_slice, AudioSlice, CueRange, EpisodeIdentity, PodcastContext,
-    PodcastContextQuality, PodcastEpisode, PodcastEpisodeProvenance, PodcastFeed,
-    PodcastFeedProvenance, TranscriptCue, TranscriptDocument, TranscriptFormat,
-    TranscriptProvenance, TranscriptResource, TranscriptToken, AUDIO_SLICE_PADDING_MS,
+    calculate_padded_audio_slice, reconcile_episode_identity, AudioSlice, CueRange,
+    EpisodeIdentity, PodcastContext, PodcastContextQuality, PodcastEpisode,
+    PodcastEpisodeProvenance, PodcastFeed, PodcastFeedProvenance, TranscriptCue,
+    TranscriptDocument, TranscriptFormat, TranscriptProvenance, TranscriptResource,
+    TranscriptToken, AUDIO_SLICE_PADDING_MS,
 };
 pub use srs::{
     calculate_next_ease_factor, calculate_next_interval_days, calculate_next_repetitions,

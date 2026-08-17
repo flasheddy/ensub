@@ -31,6 +31,7 @@ flowchart TB
     language --> core
 
     sandbox["Ensub Core offline sandbox"] --> wasm["ensub-wasm"]
+    player["Ensub Player PWA"] --> wasm
     web["Ensub Context (optional online)"] --> supabase["Supabase Auth, Database, and Edge Function"]
     web -. generated CSS .-> theme
     supabase --> provider["OpenAI-compatible endpoint"]
@@ -57,6 +58,7 @@ flowchart TB
 | `crates/cosmic_gui` | `ensub-gui` | COSMIC application state, native effects, GUI reader, library, dashboard, capture HUD, and review views |
 | `crates/cosmic_applet` | `ensub-applet` | COSMIC panel badge, popover review state, and capture-HUD launcher |
 | `crates/wasm_bridge` | `ensub-wasm` | Browser DTOs, standalone ingestion bindings, versioned snapshot adapter, and `localStorage` backend |
+| `crates/web_player` | none | Installable audio workspace, synchronized transcript DOM, IndexedDB player cache, and Web Locks coordination |
 | `crates/web_sandbox` | none | Offline static Ensub Core reference harness, bundled WASM/lexicon assets, Web Locks coordination, and service worker |
 | `crates/web_site` | none | Separate optional Ensub Context assistant using anonymous Supabase sessions and an authenticated LLM Edge Function |
 | `tools/lexicon_builder` | `ensub-lexicon-builder` | Reproducible native and browser lexicon artifact generation |
@@ -129,6 +131,14 @@ browser functions. They convert Rust DTOs to camel-case browser DTOs, publicatio
 times to epoch milliseconds, and UTF-8 token byte spans to UTF-16 offsets. These
 functions are independent of `EnsubSandbox` and do not read or mutate snapshot
 storage.
+
+The same WASM package exposes `EnsubPlayerWorkspace`. Rust owns episode identity
+reconciliation, the versioned `ensub-player-cache` envelope, feed/transcript
+parsing, cache validation, and cue-boundary resolution. The PWA owns bounded
+HTTP transport, one DOM audio element, animation-frame scheduling, transcript
+highlight classes, scrolling, focus, and IndexedDB/Web Locks effects. The
+player envelope is deliberately separate from the learning snapshot so its
+schema can evolve independently from learning-storage migrations.
 
 `ensub-llm` is a separate, provider-neutral network adapter. No current
 application surface depends on it, so the bundled lexicon remains the default

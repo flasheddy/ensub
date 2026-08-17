@@ -101,6 +101,20 @@ Supabase, LLM, and credential references. Once installed by the service
 worker, the complete workflow can reload offline. Reset removes only this
 snapshot; corrupt or newer snapshots are preserved until an explicit reset.
 
+## Ensub Player Storage
+
+The player persists podcast feeds, episode metadata, selected transcript
+resources, and parsed transcript cues in one opaque Rust snapshot in the
+browser's `ensub-player` IndexedDB database. Audio is streamed and is not added
+to this snapshot. Playback position, rate, and volume are not persisted.
+
+Feed and transcript requests connect directly from the browser to the resource
+host. Browser CORS and network policy apply. The player has no implicit proxy
+and does not send feed URLs, query strings, transcript contents, or cache
+contents to an Ensub service. The installed application shell, WASM module,
+icons, demo media, and versioned lexicon sidecars are available offline; remote
+audio and transcripts must already be cached or reachable.
+
 ## Ensub Context Storage
 
 Ensub Context persists an anonymous Supabase session in browser storage. Saved

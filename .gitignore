@@ -7,6 +7,11 @@
 /crates/web_sandbox/node_modules/
 /crates/web_sandbox/playwright-report/
 /crates/web_sandbox/test-results/
+/crates/web_player/dist/
+/crates/web_player/pkg/
+/crates/web_player/node_modules/
+/crates/web_player/playwright-report/
+/crates/web_player/test-results/
 /.private/
 /prd.md
 /docs/superpowers/

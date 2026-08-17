@@ -21,7 +21,7 @@ verify_wasm() {
     wasm-pack test --firefox --headless crates/wasm_bridge
   cargo tree -p ensub-wasm --target wasm32-unknown-unknown \
     | tee "$workspace_root/target/ensub-wasm-tree.txt"
-  if grep -E 'ensub-(sqlite|gui|applet|llm)|libcosmic|rusqlite' \
+  if grep -E 'ensub-(sqlite|gui|applet|llm|tui)|libcosmic|rusqlite|reqwest|tokio' \
     "$workspace_root/target/ensub-wasm-tree.txt"; then
     echo "native adapter or UI dependency entered the WASM graph" >&2
     exit 1
@@ -29,6 +29,14 @@ verify_wasm() {
 }
 
 verify_web() {
+  (
+    cd crates/web_player
+    bun install --frozen-lockfile
+    bun test tests/*.test.mjs
+    bun run build
+    bun run verify:dist
+    bun run test:browser
+  )
   (
     cd crates/web_sandbox
     bun install --frozen-lockfile

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,58 @@ pub struct EpisodeIdentity {
     pub feed_url: String,
     pub publisher_guid_aliases: Vec<String>,
     pub enclosure_url_aliases: Vec<String>,
+}
+
+pub fn reconcile_episode_identity(
+    existing: &EpisodeIdentity,
+    observed: &EpisodeIdentity,
+) -> Option<EpisodeIdentity> {
+    if existing.feed_url != observed.feed_url {
+        return None;
+    }
+
+    let matching_internal_id = existing.internal_id == observed.internal_id;
+    let matching_guid = aliases_intersect(
+        &existing.publisher_guid_aliases,
+        &observed.publisher_guid_aliases,
+    );
+    let matching_enclosure = aliases_intersect(
+        &existing.enclosure_url_aliases,
+        &observed.enclosure_url_aliases,
+    );
+    if !matching_internal_id && !matching_guid && !matching_enclosure {
+        return None;
+    }
+
+    Some(EpisodeIdentity {
+        internal_id: existing.internal_id.clone(),
+        feed_url: existing.feed_url.clone(),
+        publisher_guid_aliases: merged_aliases(
+            &existing.publisher_guid_aliases,
+            &observed.publisher_guid_aliases,
+        ),
+        enclosure_url_aliases: merged_aliases(
+            &existing.enclosure_url_aliases,
+            &observed.enclosure_url_aliases,
+        ),
+    })
+}
+
+fn aliases_intersect(existing: &[String], observed: &[String]) -> bool {
+    let existing: HashSet<&str> = existing.iter().map(String::as_str).collect();
+    observed
+        .iter()
+        .any(|alias| existing.contains(alias.as_str()))
+}
+
+fn merged_aliases(existing: &[String], observed: &[String]) -> Vec<String> {
+    existing
+        .iter()
+        .chain(observed)
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

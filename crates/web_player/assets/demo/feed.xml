@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <title>Synthetic Signal</title>
+    <language>en</language>
+    <description>A synthetic local fixture for the Ensub player.</description>
+    <image><url>cover.png</url><title>Synthetic Signal</title><link>./</link></image>
+    <item>
+      <guid isPermaLink="false">ensub-demo-episode-1</guid>
+      <title>The Shape of a Listening Habit</title>
+      <description>A short synthetic episode for local player verification.</description>
+      <pubDate>Mon, 17 Aug 2026 08:00:00 +0000</pubDate>
+      <enclosure url="audio.wav" type="audio/wav" length="529244" />
+      <podcast:transcript url="transcript.vtt" type="text/vtt" language="en" rel="captions" />
+      <podcast:transcript url="transcript.txt" type="text/plain" language="en" />
+    </item>
+  </channel>
+</rss>

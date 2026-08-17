@@ -1,0 +1,1 @@
+This unsupported transcript fixture ensures audio remains playable when a resource cannot be parsed.

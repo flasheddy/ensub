@@ -59,6 +59,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: bun install --frozen-lockfile
         working-directory: crates/web_sandbox
+      - run: bun install --frozen-lockfile
+        working-directory: crates/web_player
       - run: bunx playwright install --with-deps chromium
         working-directory: crates/web_sandbox
       - run: sh scripts/verify.sh web

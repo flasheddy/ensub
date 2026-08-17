@@ -26,6 +26,7 @@ The repository includes these implemented surfaces:
 | TUI | `esb tui [FILE]` | Read Markdown or plain text, inspect and capture words, run quick reviews |
 | COSMIC GUI | `ensub-gui` | Dashboard, vocabulary library, document reader, text capture, and review sessions |
 | COSMIC applet | `ensub-applet` | Due-count badge, one-card review popover, and clipboard capture HUD |
+| Ensub Player | `crates/web_player` | Installable podcast audio workspace with synchronized, locally cached transcripts |
 | Ensub Core sandbox | `crates/web_sandbox` | Offline real-lexicon parsing, capture, SRS review, snapshots, and multi-tab coordination |
 | Ensub Context | `crates/web_site` | Optional online contextual analysis and private cloud-backed capture history |
 
@@ -114,6 +115,7 @@ and the contextual web assistant setup.
 | [Development](docs/development.md) | Workspace layout, validation commands, tests, web builds, and release builds |
 | [Data and Privacy](docs/data-and-privacy.md) | Native and browser storage, path overrides, concurrency, backup, and reset behavior |
 | [Offline Lexicon](docs/lexicon.md) | Corpus provenance, generated artifacts, extraction, and regeneration |
+| [Ensub Player](crates/web_player/README.md) | PWA build, local cache, direct browser fetching, and preview |
 | [Ensub Core Sandbox](crates/web_sandbox/README.md) | Offline WASM build, verification, and local preview |
 | [Ensub Context](crates/web_site/README.md) | Supabase setup, LLM secrets, build, preview, and privacy |
 
@@ -137,6 +139,7 @@ ensub-tui         terminal reader and quick-review state machine
 ensub-gui         native COSMIC desktop application and capture HUD
 ensub-applet      native COSMIC panel applet
 ensub-wasm        browser bindings and local snapshot storage
+web_player        installable podcast and synchronized-transcript workspace
 web_sandbox       offline Ensub Core reference harness
 web_site          optional online Ensub Context companion
 ```

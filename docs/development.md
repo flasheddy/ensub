@@ -30,6 +30,7 @@ crates/
   theme/              semantic RGB themes and CSS exporter
   tui/                Ratatui reader and review panel
   wasm_bridge/        browser API and snapshot persistence
+  web_player/         installable podcast and transcript workspace
   web_sandbox/        offline Ensub Core reference harness
   web_site/           optional online Ensub Context application
 packaging/             local release scripts and desktop integration
@@ -108,6 +109,23 @@ cargo tree -p ensub-wasm --target wasm32-unknown-unknown
 
 The WASM tree must not contain `rusqlite`, `libcosmic`, `ensub-gui`, or
 `ensub-applet`.
+
+## Ensub Player
+
+The player build compiles the shared WASM package, generates theme CSS, copies
+the versioned browser lexicon sidecars, and verifies a fully precached PWA:
+
+```bash
+cd crates/web_player
+bun install --frozen-lockfile
+bun test
+bun run build
+bun run verify:dist
+bun run test:browser
+```
+
+The browser suite covers demo feed import, DOM audio controls, cue highlighting,
+manual-follow behavior, persistence, offline reload, and desktop/mobile layout.
 
 ## Ensub Core Offline Sandbox
 

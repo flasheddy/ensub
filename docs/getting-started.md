@@ -148,6 +148,20 @@ icons, project licenses, and lexicon notices. Ensure `$HOME/.local/bin` is on
 uses the default `/usr/local` prefix and normally requires elevated filesystem
 permissions.
 
+## Build the Player Workspace
+
+```bash
+cd crates/web_player
+bun install --frozen-lockfile
+bun test
+bun run build
+bun run verify:dist
+bun run serve
+```
+
+Open `http://127.0.0.1:4175` and choose **Load Demo Episode**. The demo uses
+synthetic local media; a remote podcast feed must allow direct browser access.
+
 ## Build the Offline Core Sandbox
 
 ```bash

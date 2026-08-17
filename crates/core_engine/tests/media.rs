@@ -1,9 +1,10 @@
 use chrono::{TimeZone, Utc};
 use core_engine::{
-    calculate_padded_audio_slice, AudioSlice, CueRange, EpisodeIdentity, MediaDomainError,
-    PodcastContext, PodcastContextQuality, PodcastEpisode, PodcastEpisodeProvenance, PodcastFeed,
-    PodcastFeedProvenance, TranscriptCue, TranscriptDocument, TranscriptFormat,
-    TranscriptProvenance, TranscriptResource, TranscriptToken, AUDIO_SLICE_PADDING_MS,
+    calculate_padded_audio_slice, reconcile_episode_identity, AudioSlice, CueRange,
+    EpisodeIdentity, MediaDomainError, PodcastContext, PodcastContextQuality, PodcastEpisode,
+    PodcastEpisodeProvenance, PodcastFeed, PodcastFeedProvenance, TranscriptCue,
+    TranscriptDocument, TranscriptFormat, TranscriptProvenance, TranscriptResource,
+    TranscriptToken, AUDIO_SLICE_PADDING_MS,
 };
 use serde_json::json;
 
@@ -15,6 +16,64 @@ fn transcript_resource(format: Option<TranscriptFormat>) -> TranscriptResource {
         language: Some("en".to_string()),
         relation: Some("captions".to_string()),
     }
+}
+
+#[test]
+fn episode_identity_reconciliation_preserves_internal_id_and_merges_aliases() {
+    let existing = EpisodeIdentity {
+        internal_id: "stable-id".to_string(),
+        feed_url: "https://media.example.test/feed.xml".to_string(),
+        publisher_guid_aliases: vec!["guid-b".to_string(), "guid-a".to_string()],
+        enclosure_url_aliases: vec!["https://media.example.test/old.mp3".to_string()],
+    };
+    let observed = EpisodeIdentity {
+        internal_id: "new-parser-id".to_string(),
+        feed_url: existing.feed_url.clone(),
+        publisher_guid_aliases: vec!["guid-a".to_string(), "guid-c".to_string()],
+        enclosure_url_aliases: vec!["https://media.example.test/new.mp3".to_string()],
+    };
+
+    let reconciled = reconcile_episode_identity(&existing, &observed)
+        .expect("intersecting aliases must identify the same episode");
+
+    assert_eq!(reconciled.internal_id, "stable-id");
+    assert_eq!(reconciled.feed_url, existing.feed_url);
+    assert_eq!(
+        reconciled.publisher_guid_aliases,
+        ["guid-a", "guid-b", "guid-c"]
+    );
+    assert_eq!(
+        reconciled.enclosure_url_aliases,
+        [
+            "https://media.example.test/new.mp3",
+            "https://media.example.test/old.mp3"
+        ]
+    );
+}
+
+#[test]
+fn episode_identity_reconciliation_requires_feed_and_identity_evidence() {
+    let existing = EpisodeIdentity {
+        internal_id: "stable-id".to_string(),
+        feed_url: "https://media.example.test/feed.xml".to_string(),
+        publisher_guid_aliases: vec!["guid-1".to_string()],
+        enclosure_url_aliases: vec!["https://media.example.test/episode.mp3".to_string()],
+    };
+    let matching_id = EpisodeIdentity {
+        internal_id: existing.internal_id.clone(),
+        feed_url: existing.feed_url.clone(),
+        publisher_guid_aliases: Vec::new(),
+        enclosure_url_aliases: Vec::new(),
+    };
+    assert!(reconcile_episode_identity(&existing, &matching_id).is_some());
+
+    let mut unrelated = matching_id.clone();
+    unrelated.internal_id = "different-id".to_string();
+    assert_eq!(reconcile_episode_identity(&existing, &unrelated), None);
+
+    let mut other_feed = matching_id;
+    other_feed.feed_url = "https://other.example.test/feed.xml".to_string();
+    assert_eq!(reconcile_episode_identity(&existing, &other_feed), None);
 }
 
 fn cue_with(
