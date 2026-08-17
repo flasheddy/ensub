@@ -1,0 +1,16 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: var(--ensub-bg, #111318); color: var(--ensub-text, #eceef4); }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; }
+header, footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; border-bottom: 1px solid #42454f; }
+footer { border-top: 1px solid #42454f; border-bottom: 0; }
+main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(18rem, 2fr); gap: 1.5rem; max-width: 72rem; margin: 0 auto; padding: 1.5rem; }
+section { min-width: 0; }
+h1, h2, h3 { letter-spacing: 0; }
+textarea { display: block; width: 100%; margin: .4rem 0 .75rem; padding: .75rem; resize: vertical; background: #191c22; color: inherit; border: 1px solid #555a66; border-radius: 4px; }
+button { min-height: 2.25rem; padding: .45rem .75rem; border: 1px solid #777d8b; border-radius: 4px; background: #303542; color: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.candidate-list { display: grid; gap: .45rem; margin: 1rem 0; }
+.candidate-list label { display: block; padding: .55rem; border-bottom: 1px solid #343842; }
+[data-testid="review"] button { margin: .25rem; min-width: 2.25rem; }
+.danger { border-color: #c46b6b; }
+@media (max-width: 48rem) { main { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; } }

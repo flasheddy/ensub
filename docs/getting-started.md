@@ -24,7 +24,9 @@ The optional surfaces have additional requirements:
 - TUI: a terminal supported by `crossterm`.
 - COSMIC GUI and applet: Linux graphics, Wayland/X11, and COSMIC development
   dependencies required by the pinned `libcosmic` revision.
-- Contextual web app: Bun 1.3.14. The site has no registry dependencies.
+- Ensub Core sandbox: Bun 1.3.14, wasm-pack 0.15.0, Playwright 1.62.1,
+  Chromium, Firefox, and the `wasm32-unknown-unknown` Rust target.
+- Ensub Context: Bun 1.3.14 and configured Supabase services.
 
 Confirm the Rust toolchain:
 
@@ -115,10 +117,10 @@ to open quick review. The complete key map is in the
 
 ## Build the COSMIC Desktop Surfaces
 
-Build both release binaries:
+Build all installable release binaries:
 
 ```bash
-cargo build --release -p ensub-gui -p ensub-applet
+cargo build --release -p ensub-cli -p ensub-gui -p ensub-applet
 ```
 
 Launch the GUI directly during development:
@@ -140,15 +142,33 @@ user:
 PREFIX="$HOME/.local" sh packaging/install.sh
 ```
 
-The installer copies only the COSMIC GUI and applet. Install `esb` separately
-with Cargo. Ensure `$HOME/.local/bin` is on `PATH`, then add Ensub from COSMIC's
-panel settings. A system-wide installation uses the default `/usr/local`
-prefix and normally requires elevated filesystem permissions.
+The installer copies `esb`, the COSMIC GUI and applet, integration metadata,
+icons, project licenses, and lexicon notices. Ensure `$HOME/.local/bin` is on
+`PATH`, then add Ensub from COSMIC's panel settings. A system-wide installation
+uses the default `/usr/local` prefix and normally requires elevated filesystem
+permissions.
 
-## Build the Contextual Web App
+## Build the Offline Core Sandbox
 
-Ensure Bun is available, configure Supabase as described in the web app
-README, then build and serve the static site:
+```bash
+cd crates/web_sandbox
+bun install --frozen-lockfile
+bun test
+bun run build
+bun run verify:dist
+bun run serve
+```
+
+Open `http://127.0.0.1:4174`. After the service worker controls the page, the
+parser, capture, review, statistics, and reload workflow remains available
+offline. The build contains no Ensub Context, Supabase, LLM, or remote endpoint
+reference.
+
+## Build Ensub Context
+
+Configure Supabase as described in the
+[Ensub Context README](../crates/web_site/README.md), then build and serve the
+static site:
 
 ```bash
 cd crates/web_site
@@ -160,6 +180,15 @@ bun run serve
 
 Open `http://127.0.0.1:4173`. The build output is written to
 `crates/web_site/dist` and is intentionally ignored by Git.
+
+## Create Local Release Archives
+
+```bash
+sh packaging/build-release.sh
+```
+
+The command creates CLI/TUI and COSMIC archives plus `SHA256SUMS` under
+`target/release-artifacts/v0.1.0-rc1`. It does not publish them.
 
 ## Next Steps
 

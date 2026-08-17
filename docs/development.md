@@ -11,7 +11,7 @@ rules remain authoritative in [`AGENTS.md`](../AGENTS.md).
 - Native database: bundled SQLite through `rusqlite`
 - Desktop toolkit: pinned `libcosmic` Git revision
 - Web target: `wasm32-unknown-unknown`
-- Static-site tooling: Bun 1.3.14 and Node.js built-ins; no registry dependencies
+- Static-site tooling: Bun 1.3.14, Playwright 1.62.1, and Chromium
 
 The committed `Cargo.lock` is part of the application workspace and must be
 used for reproducible installation and validation.
@@ -30,8 +30,10 @@ crates/
   theme/              semantic RGB themes and CSS exporter
   tui/                Ratatui reader and review panel
   wasm_bridge/        browser API and snapshot persistence
-  web_site/           static contextual vocabulary application
-packaging/             desktop integration and icons
+  web_sandbox/        offline Ensub Core reference harness
+  web_site/           optional online Ensub Context application
+packaging/             local release scripts and desktop integration
+scripts/               canonical verification entry point
 tools/
   lexicon_builder/    reproducible dictionary asset generation
 ```
@@ -99,20 +101,39 @@ Install the target and `wasm-pack`, then run:
 ```bash
 cargo check -p ensub-wasm --target wasm32-unknown-unknown
 cargo clippy -p ensub-wasm --target wasm32-unknown-unknown -- -D warnings
-wasm-pack test --headless --firefox crates/wasm_bridge
+WASM_PACK_CACHE="$PWD/target/wasm-pack-cache" \
+  wasm-pack test --headless --firefox crates/wasm_bridge
 cargo tree -p ensub-wasm --target wasm32-unknown-unknown
 ```
 
 The WASM tree must not contain `rusqlite`, `libcosmic`, `ensub-gui`, or
 `ensub-applet`.
 
-## Static Web Site
+## Ensub Core Offline Sandbox
 
-The site scripts test and assemble the vanilla browser application into `dist`:
+The Core build compiles `ensub-wasm`, verifies/decompresses the committed
+browser lexicon, generates a content-addressed service worker, and rejects
+remote endpoint or cloud credential references:
+
+```bash
+cd crates/web_sandbox
+bun install --frozen-lockfile
+bun test
+bun run build
+bun run verify:dist
+bun run test:browser
+```
+
+The Playwright suite uses the real lexicon, records 30 warm parser samples and
+requires p95 below 100 ms, exercises reload persistence and SRS review, and
+tests multi-tab Web Locks behavior plus a controlled offline reload.
+
+## Ensub Context
+
+Context scripts test and assemble the optional online companion into `dist`:
 
 ```bash
 cd crates/web_site
-bun install --frozen-lockfile
 bun test
 bun run build
 bun run verify:dist
@@ -121,7 +142,7 @@ bun run serve
 
 The static build requires Rust 1.93 and runs the `ensub-theme-css` exporter to
 create `dist/theme.css` before copying the HTML, component CSS, JavaScript, and
-retirement service worker required by GitHub Pages. Generated theme CSS stays
+retirement service worker. Generated theme CSS stays
 ignored and is not checked in. Supabase schema and Edge Function source remain
 deployment inputs rather than browser assets. See the web app README for
 backend setup and secret names.
@@ -168,17 +189,26 @@ Generate local API documentation with:
 cargo doc --workspace --no-deps
 ```
 
-## Release Build
+## Verification and Local Release
 
-Build all installable native binaries with the lockfile:
+Run an individual verification gate or the complete local sequence:
 
 ```bash
-cargo build --release --locked \
-  -p ensub-cli \
-  -p ensub-gui \
-  -p ensub-applet
+sh scripts/verify.sh rust
+sh scripts/verify.sh wasm
+sh scripts/verify.sh web
+sh scripts/verify.sh release-smoke
+sh scripts/verify.sh secrets
+sh scripts/verify.sh all
 ```
 
-The current packaging script installs the GUI and applet integration files.
-It does not package `esb`, publish archives, or build the web site. Those are
-still separate release operations.
+Create only the deterministic v0.1.0-rc1 native archives with:
+
+```bash
+sh packaging/build-release.sh
+```
+
+This stages `esb`, the GUI/applet, metadata, icons, licenses, lexicon
+provenance, and third-party notices under a temporary `DESTDIR`; validates and
+smoke-tests that staged tree; then writes two archives and `SHA256SUMS` under
+`target/release-artifacts`. No verification or packaging mode publishes.

@@ -46,11 +46,11 @@ does not affect captures or reviews.
 
 ## Browser Artifact
 
-`crates/web_site/assets/lexicon-v1.postcard.gz` is loaded by the WebAssembly
+`crates/web_sandbox/assets/lexicon-v1.postcard.gz` is loaded by the WebAssembly
 sandbox. Its manifest records schema version, entry counts, source labels,
 compressed size, and digest:
 
-[`crates/web_site/assets/lexicon-v1.manifest.json`](../crates/web_site/assets/lexicon-v1.manifest.json)
+[`crates/web_sandbox/assets/lexicon-v1.manifest.json`](../crates/web_sandbox/assets/lexicon-v1.manifest.json)
 
 The static service worker includes the asset in its application cache. The
 browser lexicon implements the same portable `Lexicon` contract as the native

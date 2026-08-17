@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use core_engine::{schedule_review, ReviewCard, ReviewRating, ReviewState};
+use core_engine::{schedule_review, ReviewCard, ReviewRating, ReviewState, ReviewUpdate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewPhase {
@@ -41,7 +41,7 @@ pub enum Message {
     DueCardLoaded(Result<Option<ReviewCard>, String>),
     Reveal,
     Rate(ReviewRating, DateTime<Utc>),
-    ReviewCommitted(Result<bool, String>, DateTime<Utc>),
+    ReviewCommitted(Result<ReviewUpdate, String>, DateTime<Utc>),
     LaunchCapture,
 }
 
@@ -137,7 +137,17 @@ pub fn update(model: &mut Model, message: Message) -> Vec<Effect> {
             }
         }
         Message::ReviewCommitted(result, as_of) => match result {
-            Ok(_) => {
+            Ok(ReviewUpdate::Updated) => {
+                model.as_of = as_of;
+                model.card = None;
+                model.review_phase = ReviewPhase::Empty;
+                vec![
+                    Effect::RefreshDueCount { as_of },
+                    Effect::LoadDueCard { as_of },
+                ]
+            }
+            Ok(ReviewUpdate::Conflict) => {
+                model.as_of = as_of;
                 model.card = None;
                 model.review_phase = ReviewPhase::Empty;
                 vec![

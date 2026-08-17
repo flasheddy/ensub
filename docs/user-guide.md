@@ -220,16 +220,31 @@ seconds. Open the popover to:
 The badge caps display at `99+`. The applet uses the default native database
 path and expects `ensub-gui` beside the applet binary or available on `PATH`.
 
-## Contextual Web Assistant
+## Ensub Core Browser Sandbox
+
+The offline Core reference harness accepts pasted text, resolves candidates
+against the real bundled lexicon, captures selected terms, and exposes one due
+review at a time. Reveal the answer, then rate recall from 0 through 5 using
+the same scheduling policy as native surfaces.
+
+The snapshot stays under `ensub.sandbox.v1` in browser `localStorage`. Each
+write takes a short Web Lock so multiple tabs cannot silently overwrite each
+other. Tabs without Web Locks remain useful for parsing and queries but disable
+writes. The reset control deletes only the Core snapshot.
+
+No account or network service is used. After the service worker has installed,
+the complete harness can reload offline.
+
+## Ensub Context
 
 Enter a target word or phrase, the sentence where it appeared, and optional
 surrounding context. "Analyze & Save" returns the lemma, part of speech,
 context-specific definition, nuance, and confidence, then adds the complete
 encounter to Recent Captures.
 
-The web app creates an anonymous Supabase session automatically. Its history is
+Ensub Context creates an anonymous Supabase session automatically. Its history is
 private to that browser identity and remains separate from native SQLite. A
 network connection is required for authentication, analysis, and history.
 
-See the [Contextual Web App README](../crates/web_site/README.md) for backend
-configuration, build, preview, privacy, and deployment instructions.
+See the [Ensub Context README](../crates/web_site/README.md) for backend
+configuration, build, preview, and privacy instructions.

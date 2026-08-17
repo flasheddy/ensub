@@ -30,7 +30,8 @@ flowchart TB
     sqlite --> language
     language --> core
 
-    web["Contextual web app"] --> supabase["Supabase Auth, Database, and Edge Function"]
+    sandbox["Ensub Core offline sandbox"] --> wasm["ensub-wasm"]
+    web["Ensub Context (optional online)"] --> supabase["Supabase Auth, Database, and Edge Function"]
     web -. generated CSS .-> theme
     supabase --> provider["OpenAI-compatible endpoint"]
     wasm --> core
@@ -56,7 +57,8 @@ flowchart TB
 | `crates/cosmic_gui` | `ensub-gui` | COSMIC application state, native effects, GUI reader, library, dashboard, capture HUD, and review views |
 | `crates/cosmic_applet` | `ensub-applet` | COSMIC panel badge, popover review state, and capture-HUD launcher |
 | `crates/wasm_bridge` | `ensub-wasm` | Browser DTOs, WASM bindings, versioned snapshot adapter, and `localStorage` backend |
-| `crates/web_site` | none | Static HTML/CSS/JavaScript contextual assistant using anonymous Supabase sessions and an authenticated LLM Edge Function |
+| `crates/web_sandbox` | none | Offline static Ensub Core reference harness, bundled WASM/lexicon assets, Web Locks coordination, and service worker |
+| `crates/web_site` | none | Separate optional Ensub Context assistant using anonymous Supabase sessions and an authenticated LLM Edge Function |
 | `tools/lexicon_builder` | `ensub-lexicon-builder` | Reproducible native and browser lexicon artifact generation |
 | `packaging` | none | COSMIC desktop entries, AppStream metadata, icons, and installation script |
 
@@ -132,11 +134,13 @@ The schema contains `words`, `contexts`, `review_state`, and immutable
 
 `SnapshotStorage` implements the same storage behavior over a versioned JSON
 snapshot. On `wasm32`, `LocalStorageBackend` persists it under
-`ensub.sandbox.v1`. The site separately persists its deterministic sandbox
-clock and coordinates writers between tabs with a browser lock or lease.
+`ensub.sandbox.v1`. The Ensub Core sandbox uses `Date.now()` for operation
+timestamps and takes a short-lived exclusive Web Lock around each mutation.
+Browsers without Web Locks open the WASM adapter read-only.
 
 Browser snapshot storage is not connected to native SQLite and has no
-synchronization or remote backend.
+synchronization or remote backend. Its static build rejects cross-origin
+endpoints and has no dependency on Ensub Context, Supabase, or `ensub-llm`.
 
 ## Presentation Architecture
 

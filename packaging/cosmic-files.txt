@@ -1,0 +1,15 @@
+usr/bin/ensub-applet
+usr/bin/ensub-gui
+usr/share/applications/dev.ensub.Ensub.Applet.desktop
+usr/share/applications/dev.ensub.Ensub.desktop
+usr/share/doc/ensub/LICENSE-APACHE
+usr/share/doc/ensub/LICENSE-MIT
+usr/share/doc/ensub/LEXICON.md
+usr/share/doc/ensub/PROVENANCE.toml
+usr/share/doc/ensub/README.md
+usr/share/doc/ensub/THIRD_PARTY_LICENSES/CMUDICT.txt
+usr/share/doc/ensub/THIRD_PARTY_LICENSES/OEWN-CC-BY-4.0.txt
+usr/share/doc/ensub/THIRD_PARTY_LICENSES/PRINCETON-WORDNET-3.0.txt
+usr/share/icons/hicolor/scalable/apps/dev.ensub.Ensub.svg
+usr/share/icons/hicolor/symbolic/apps/dev.ensub.Ensub-symbolic.svg
+usr/share/metainfo/dev.ensub.Ensub.metainfo.xml

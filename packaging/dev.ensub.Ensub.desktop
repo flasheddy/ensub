@@ -5,6 +5,6 @@ Comment=English immersion reader and spaced-repetition library
 Exec=ensub-gui
 Icon=dev.ensub.Ensub
 Terminal=false
-Categories=Education;Utility;
+Categories=Education;Languages;
 StartupNotify=true
 StartupWMClass=dev.ensub.Ensub

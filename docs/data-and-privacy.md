@@ -1,9 +1,10 @@
 # Data and Privacy
 
-Ensub's native surfaces are local-first and persist to SQLite. The optional
-contextual web assistant uses an anonymous Supabase identity, owner-scoped
-Postgres records, and an OpenAI-compatible model. Ensub does not synchronize
-native vocabulary with the web app and does not include telemetry.
+Ensub Core is local-first: native surfaces persist to SQLite and the offline
+browser sandbox persists a versioned snapshot to `localStorage`. The separate,
+optional Ensub Context companion uses an anonymous Supabase identity,
+owner-scoped Postgres records, and an OpenAI-compatible model. These products
+do not synchronize with each other and Ensub does not include telemetry.
 
 ## Native Database
 
@@ -87,18 +88,30 @@ On typical Linux systems this is `$XDG_CACHE_HOME/ensub/lexicon` or
 `$HOME/.cache/ensub/lexicon`. Cache deletion does not delete vocabulary or
 review history; Ensub recreates the verified lexicon from its embedded asset.
 
-## Contextual Web App Storage
+## Ensub Core Browser Storage
 
-The web app persists an anonymous Supabase session in browser storage. Saved
+The offline sandbox stores its versioned JSON snapshot under
+`ensub.sandbox.v1`. Capture, review, and reset mutations are serialized with
+the browser's Web Locks API. If Web Locks are unavailable, parsing and state
+queries remain available but the sandbox opens read-only.
+
+The lexicon, WASM module, application shell, and service worker are bundled in
+one same-origin static distribution. Its build rejects remote endpoint,
+Supabase, LLM, and credential references. Once installed by the service
+worker, the complete workflow can reload offline. Reset removes only this
+snapshot; corrupt or newer snapshots are preserved until an explicit reset.
+
+## Ensub Context Storage
+
+Ensub Context persists an anonymous Supabase session in browser storage. Saved
 phrases, sentences, optional surrounding context, and generated lexical fields
 are stored in `vocabulary_records` with the anonymous user's ID. Row Level
 Security allows each authenticated session to select and insert only its own
 rows.
 
 Clearing browser site data loses access to that anonymous identity. Removing
-the anonymous user from Supabase cascades to its records. The web app requires
-a network connection and does not use the old offline service-worker or WASM
-snapshot store.
+the anonymous user from Supabase cascades to its records. Ensub Context
+requires a network connection and does not import the Core WASM snapshot.
 
 ## Backup and Restore
 
@@ -117,7 +130,7 @@ backup at the same path. Preserve the original until the restored database has
 opened successfully. Ensub refuses schemas newer than the running build
 supports.
 
-The contextual web app currently has no export/import UI. The Supabase project
+Ensub Context currently has no export/import UI. The Supabase project
 operator remains responsible for database backup and retention.
 
 ## Resetting Data
@@ -125,7 +138,8 @@ operator remains responsible for database backup and retention.
 - Native: there is no reset command. Back up the database, close all Ensub
   processes, then remove the specific database only when permanent deletion is
   intended.
-- Web app: no reset/delete UI is provided. Removing an
+- Core sandbox: use its explicit reset control to delete `ensub.sandbox.v1`.
+- Ensub Context: no reset/delete UI is provided. Removing an
   anonymous user from Supabase deletes that user's vocabulary records.
 
 These stores never synchronize automatically. Resetting one does not affect

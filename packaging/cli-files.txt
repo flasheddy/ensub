@@ -1,0 +1,9 @@
+usr/bin/esb
+usr/share/doc/ensub/LICENSE-APACHE
+usr/share/doc/ensub/LICENSE-MIT
+usr/share/doc/ensub/LEXICON.md
+usr/share/doc/ensub/PROVENANCE.toml
+usr/share/doc/ensub/README.md
+usr/share/doc/ensub/THIRD_PARTY_LICENSES/CMUDICT.txt
+usr/share/doc/ensub/THIRD_PARTY_LICENSES/OEWN-CC-BY-4.0.txt
+usr/share/doc/ensub/THIRD_PARTY_LICENSES/PRINCETON-WORDNET-3.0.txt

@@ -1,5 +1,7 @@
 use chrono::{TimeZone, Utc};
-use core_engine::{initial_review_state, ReviewCard, ReviewRating, WordId, WordRecord};
+use core_engine::{
+    initial_review_state, ReviewCard, ReviewRating, ReviewUpdate, WordId, WordRecord,
+};
 use ensub_applet::{badge_text, update, Effect, Message, Model, ReviewPhase};
 
 fn now() -> chrono::DateTime<Utc> {
@@ -70,12 +72,50 @@ fn micro_review_reveals_then_commits_and_refreshes() {
         matches!(effects.as_slice(), [Effect::CommitReview { expected, .. }] if expected == &review_card.state)
     );
 
-    let effects = update(&mut model, Message::ReviewCommitted(Ok(true), now()));
+    let effects = update(
+        &mut model,
+        Message::ReviewCommitted(Ok(ReviewUpdate::Updated), now()),
+    );
     assert_eq!(
         effects,
         vec![
             Effect::RefreshDueCount { as_of: now() },
             Effect::LoadDueCard { as_of: now() }
+        ]
+    );
+}
+
+#[test]
+fn review_conflict_discards_stale_card_and_reloads_authoritative_state() {
+    let mut model = Model::new(now());
+    let _ = update(&mut model, Message::DueCardLoaded(Ok(Some(card()))));
+    let _ = update(&mut model, Message::Reveal);
+    let _ = update(
+        &mut model,
+        Message::Rate(
+            ReviewRating::try_from(4).expect("rating must be valid"),
+            now(),
+        ),
+    );
+    let conflicted_at = now() + chrono::TimeDelta::minutes(1);
+
+    let effects = update(
+        &mut model,
+        Message::ReviewCommitted(Ok(ReviewUpdate::Conflict), conflicted_at),
+    );
+
+    assert_eq!(model.as_of, conflicted_at);
+    assert!(model.card.is_none());
+    assert_eq!(model.review_phase, ReviewPhase::Empty);
+    assert_eq!(
+        effects,
+        vec![
+            Effect::RefreshDueCount {
+                as_of: conflicted_at
+            },
+            Effect::LoadDueCard {
+                as_of: conflicted_at
+            }
         ]
     );
 }

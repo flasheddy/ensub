@@ -5,12 +5,24 @@
   <summary>Read English, capture vocabulary, and review it with spaced repetition</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT OR Apache-2.0</project_license>
+  <developer id="dev.ensub">
+    <name>Ensub contributors</name>
+  </developer>
+  <url type="homepage">https://flasheddy.github.io/ensub/</url>
   <description>
     <p>Ensub combines a local document reader, offline English lexicon, vocabulary library, and SM-2 review workflow in a native COSMIC application.</p>
   </description>
   <launchable type="desktop-id">dev.ensub.Ensub.desktop</launchable>
   <provides>
     <binary>ensub-gui</binary>
+    <binary>esb</binary>
   </provides>
+  <releases>
+    <release version="0.1.0-rc1" date="2026-08-17">
+      <description>
+        <p>First release candidate with local CLI, TUI, COSMIC, and offline browser workflows.</p>
+      </description>
+    </release>
+  </releases>
   <content_rating type="oars-1.1" />
 </component>

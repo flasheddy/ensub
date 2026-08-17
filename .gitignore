@@ -2,6 +2,11 @@
 /.worktrees/
 /crates/web_site/dist/
 /crates/web_site/pkg/
+/crates/web_sandbox/dist/
+/crates/web_sandbox/pkg/
+/crates/web_sandbox/node_modules/
+/crates/web_sandbox/playwright-report/
+/crates/web_sandbox/test-results/
 /.private/
 /prd.md
 /docs/superpowers/
