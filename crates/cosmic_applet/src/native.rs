@@ -9,8 +9,11 @@ use cosmic::iced::{Length, Rectangle, Subscription, Vector};
 use cosmic::surface::action::{app_popup, destroy_popup};
 use cosmic::{widget, Element};
 use ensub_sqlite::SqliteStorage;
+use ensub_theme::Theme;
 
-use crate::{badge_text, update, Effect, Message as DomainMessage, Model, ReviewPhase};
+use crate::{
+    badge_text, to_cosmic_theme, update, Effect, Message as DomainMessage, Model, ReviewPhase,
+};
 
 #[derive(Debug, Clone)]
 pub struct AppletFlags {
@@ -18,7 +21,17 @@ pub struct AppletFlags {
 }
 
 pub fn run(flags: AppletFlags) -> cosmic::iced::Result {
-    cosmic::applet::run::<NativeApplet>(flags)
+    run_with_theme(flags, Theme::default())
+}
+
+pub fn run_with_theme(flags: AppletFlags, theme: Theme) -> cosmic::iced::Result {
+    cosmic::applet::run::<NativeApplet>(NativeAppletFlags { flags, theme })
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeAppletFlags {
+    flags: AppletFlags,
+    theme: Theme,
 }
 
 pub struct NativeApplet {
@@ -44,7 +57,7 @@ pub enum HostMessage {
 
 impl cosmic::Application for NativeApplet {
     type Executor = cosmic::SingleThreadExecutor;
-    type Flags = AppletFlags;
+    type Flags = NativeAppletFlags;
     type Message = HostMessage;
 
     const APP_ID: &'static str = "dev.ensub.Ensub.Applet";
@@ -58,15 +71,19 @@ impl cosmic::Application for NativeApplet {
     }
 
     fn init(core: Core, flags: Self::Flags) -> (Self, Task<Self::Message>) {
+        let theme = flags.theme;
         let mut applet = Self {
             core,
-            flags,
+            flags: flags.flags,
             model: Model::new(current_time()),
             popup: None,
             badge_label: "ESB 0".to_string(),
         };
-        let task = applet.apply_domain(DomainMessage::Tick(current_time()));
-        (applet, task)
+        let refresh = applet.apply_domain(DomainMessage::Tick(current_time()));
+        let apply_theme = cosmic::task::message(cosmic::Action::Cosmic(
+            cosmic::app::Action::AppThemeChange(to_cosmic_theme(theme)),
+        ));
+        (applet, Task::batch([refresh, apply_theme]))
     }
 
     fn on_close_requested(&self, id: window::Id) -> Option<Self::Message> {

@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 core_engine = { path = "../core_engine" }
 ensub-sqlite = { path = "../sqlite_storage" }
+ensub-theme.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 libcosmic = { workspace = true, features = ["applet-token", "tokio", "wayland"] }

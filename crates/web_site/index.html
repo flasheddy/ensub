@@ -4,21 +4,22 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Ensub turns words encountered in real sentences into private, context-aware vocabulary captures.">
-    <meta name="theme-color" content="#173c31">
+    <meta name="theme-color" content="#1e1e2e">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'">
     <title>Ensub — Context-Aware Immersion Vocabulary</title>
+    <link rel="stylesheet" href="./theme.css">
     <link rel="stylesheet" href="./styles.css">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.12"></script>
   </head>
-  <body class="min-h-screen bg-[#f5f7f3] text-[#18211e] antialiased">
-    <header class="border-b border-[#d7ddd8] bg-white/95">
+  <body class="app-body min-h-screen antialiased">
+    <header class="site-header border-b">
       <div class="mx-auto flex min-h-16 max-w-[1240px] items-center justify-between gap-6 px-5 sm:px-8">
-        <a class="flex items-center gap-3 font-semibold text-[#173c31] no-underline" href="#capture" aria-label="Ensub vocabulary capture">
-          <span class="grid size-9 place-items-center rounded-[6px] bg-[#173c31] font-mono text-xs font-bold text-white" aria-hidden="true">esb</span>
+        <a class="brand flex items-center gap-3 font-semibold no-underline" href="#capture" aria-label="Ensub vocabulary capture">
+          <span class="brand-mark grid size-9 place-items-center rounded-[6px] font-mono text-xs font-bold" aria-hidden="true">esb</span>
           <span class="text-lg">Ensub</span>
         </a>
-        <span class="hidden items-center gap-2 text-sm text-[#607069] sm:flex">
-          <span class="size-2 rounded-full bg-[#5a9a75]" aria-hidden="true"></span>
+        <span class="muted-copy hidden items-center gap-2 text-sm sm:flex">
+          <span class="privacy-dot size-2 rounded-full" aria-hidden="true"></span>
           Private browser session
         </span>
       </div>
@@ -28,34 +29,34 @@
       <section id="capture" class="mx-auto max-w-[1240px] px-5 pb-14 pt-9 sm:px-8 sm:pb-20 sm:pt-10">
         <div class="mb-8 grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)] lg:items-end">
           <div>
-            <h1 class="font-serif text-5xl font-semibold leading-[0.95] text-[#173c31] sm:text-6xl">Ensub</h1>
-            <p class="mt-5 max-w-2xl text-xl font-semibold text-[#27342f] sm:text-2xl">Context-Aware Immersion Vocabulary</p>
+            <h1 class="accent-copy font-serif text-5xl font-semibold leading-[0.95] sm:text-6xl">Ensub</h1>
+            <p class="primary-copy mt-5 max-w-2xl text-xl font-semibold sm:text-2xl">Context-Aware Immersion Vocabulary</p>
           </div>
-          <p class="max-w-xl text-[15px] leading-7 text-[#607069] lg:justify-self-end">
+          <p class="muted-copy max-w-xl text-[15px] leading-7 lg:justify-self-end">
             Capture a word where you found it. Ensub identifies the precise sense, nuance, and base form, then keeps the full encounter ready for review.
           </p>
         </div>
 
-        <div id="bootstrap-alert" class="mb-5 hidden items-start justify-between gap-5 rounded-[6px] border border-[#dfb8b1] bg-[#fff3f0] px-4 py-3 text-sm text-[#7b3027]" role="alert">
+        <div id="bootstrap-alert" class="status-alert mb-5 hidden items-start justify-between gap-5 rounded-[6px] border px-4 py-3 text-sm" role="alert">
           <span id="bootstrap-message"></span>
           <button id="retry-bootstrap" class="shrink-0 font-semibold underline decoration-1 underline-offset-4" type="button">Retry</button>
         </div>
 
         <div class="grid items-start gap-6 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
-          <form id="capture-form" class="rounded-[7px] border border-[#d3dad5] bg-white p-5 shadow-[0_18px_44px_rgba(24,33,30,0.07)] sm:p-7" novalidate>
-            <div class="mb-7 flex items-start justify-between gap-5 border-b border-[#e0e5e1] pb-5">
+          <form id="capture-form" class="capture-card rounded-[7px] border p-5 sm:p-7" novalidate>
+            <div class="card-divider mb-7 flex items-start justify-between gap-5 border-b pb-5">
               <div>
-                <h2 class="font-serif text-2xl font-semibold text-[#1e2b26]">Capture an encounter</h2>
-                <p class="mt-1.5 text-sm leading-6 text-[#6b7973]">The sentence anchors the analysis to the meaning you actually met.</p>
+                <h2 class="primary-copy font-serif text-2xl font-semibold">Capture an encounter</h2>
+                <p class="muted-copy mt-1.5 text-sm leading-6">The sentence anchors the analysis to the meaning you actually met.</p>
               </div>
-              <span id="session-state" class="mt-1 shrink-0 text-xs font-semibold text-[#6b7973]">Connecting</span>
+              <span id="session-state" class="session-state mt-1 shrink-0 text-xs font-semibold" data-status="connecting">Connecting</span>
             </div>
 
             <div class="grid gap-5">
               <div>
                 <div class="mb-2 flex items-center justify-between gap-4">
-                  <label class="text-sm font-semibold text-[#283630]" for="target-phrase">Target word or phrase <span class="text-[#a13f35]" aria-hidden="true">*</span></label>
-                  <span class="text-xs text-[#87928d]">120 max</span>
+                  <label class="field-label text-sm font-semibold" for="target-phrase">Target word or phrase <span class="required-mark" aria-hidden="true">*</span></label>
+                  <span class="subtle-copy text-xs">120 max</span>
                 </div>
                 <input id="target-phrase" name="targetPhrase" class="field-control" type="text" maxlength="120" autocomplete="off" required aria-describedby="target-phrase-error">
                 <p id="target-phrase-error" class="field-error" aria-live="polite"></p>
@@ -63,8 +64,8 @@
 
               <div>
                 <div class="mb-2 flex items-center justify-between gap-4">
-                  <label class="text-sm font-semibold text-[#283630]" for="target-sentence">Target sentence <span class="text-[#a13f35]" aria-hidden="true">*</span></label>
-                  <span class="text-xs text-[#87928d]">2,000 max</span>
+                  <label class="field-label text-sm font-semibold" for="target-sentence">Target sentence <span class="required-mark" aria-hidden="true">*</span></label>
+                  <span class="subtle-copy text-xs">2,000 max</span>
                 </div>
                 <textarea id="target-sentence" name="targetSentence" class="field-control min-h-32 resize-y font-serif text-base leading-7" maxlength="2000" required aria-describedby="target-sentence-error"></textarea>
                 <p id="target-sentence-error" class="field-error" aria-live="polite"></p>
@@ -72,8 +73,8 @@
 
               <div>
                 <div class="mb-2 flex items-center justify-between gap-4">
-                  <label class="text-sm font-semibold text-[#283630]" for="surrounding-context">Surrounding paragraph or context</label>
-                  <span class="text-xs text-[#87928d]">Optional</span>
+                  <label class="field-label text-sm font-semibold" for="surrounding-context">Surrounding paragraph or context</label>
+                  <span class="subtle-copy text-xs">Optional</span>
                 </div>
                 <textarea id="surrounding-context" name="surroundingContext" class="field-control min-h-28 resize-y text-sm leading-6" maxlength="5000" aria-describedby="surrounding-context-error"></textarea>
                 <p id="surrounding-context-error" class="field-error" aria-live="polite"></p>
@@ -82,36 +83,36 @@
 
             <div id="form-notice" class="mt-5 hidden rounded-[5px] border px-4 py-3 text-sm" role="alert" aria-live="assertive"></div>
 
-            <button id="analyze-button" class="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[6px] bg-[#173c31] px-5 text-sm font-bold text-white transition hover:bg-[#225443] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7cab91] disabled:cursor-not-allowed disabled:opacity-55" type="submit" disabled>
-              <span id="analyze-spinner" class="hidden size-4 animate-spin rounded-full border-2 border-white/35 border-t-white" aria-hidden="true"></span>
+            <button id="analyze-button" class="primary-button mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-[6px] px-5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-55" type="submit" disabled>
+              <span id="analyze-spinner" class="analyze-spinner hidden size-4 animate-spin rounded-full border-2" aria-hidden="true"></span>
               <span id="analyze-label">Analyze &amp; Save</span>
             </button>
           </form>
 
-          <section class="min-h-[460px] rounded-[7px] border border-[#cbd6cf] bg-[#173c31] p-5 text-white shadow-[0_18px_44px_rgba(24,33,30,0.10)] sm:min-h-[660px] sm:p-7" aria-labelledby="result-heading">
-            <div class="flex items-center justify-between gap-5 border-b border-white/15 pb-5">
+          <section class="result-card min-h-[460px] rounded-[7px] border p-5 sm:min-h-[660px] sm:p-7" aria-labelledby="result-heading">
+            <div class="result-header flex items-center justify-between gap-5 border-b pb-5">
               <h2 id="result-heading" class="font-serif text-2xl font-semibold">Contextual reading</h2>
-              <span class="text-xs font-semibold text-[#b9d1c5]">AI analysis</span>
+              <span class="muted-copy text-xs font-semibold">AI analysis</span>
             </div>
             <div id="result-panel" class="flex min-h-[355px] items-center justify-center" aria-live="polite">
               <div class="max-w-sm text-center">
-                <span class="mx-auto grid size-11 place-items-center rounded-full border border-white/20 font-serif text-lg text-[#d7f06b]" aria-hidden="true">Aa</span>
-                <p class="mt-5 font-serif text-xl text-white">Your contextual reading will appear here.</p>
-                <p class="mt-2 text-sm leading-6 text-[#afc5ba]">A saved result keeps the exact phrase and sentence together with its meaning.</p>
+                <span class="result-empty-icon mx-auto grid size-11 place-items-center rounded-full border font-serif text-lg" aria-hidden="true">Aa</span>
+                <p class="primary-copy mt-5 font-serif text-xl">Your contextual reading will appear here.</p>
+                <p class="muted-copy mt-2 text-sm leading-6">A saved result keeps the exact phrase and sentence together with its meaning.</p>
               </div>
             </div>
           </section>
         </div>
       </section>
 
-      <section id="history" class="border-t border-[#d4dbd6] bg-white">
+      <section id="history" class="history-section border-t">
         <div class="mx-auto max-w-[1240px] px-5 py-14 sm:px-8 sm:py-18">
-          <div class="flex flex-col gap-3 border-b border-[#dce2de] pb-6 sm:flex-row sm:items-end sm:justify-between">
+          <div class="card-divider flex flex-col gap-3 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 class="font-serif text-3xl font-semibold text-[#1d2b26]">Recent captures</h2>
-              <p class="mt-2 text-sm text-[#6a7872]">Newest first, visible only to this browser session.</p>
+              <h2 class="primary-copy font-serif text-3xl font-semibold">Recent captures</h2>
+              <p class="muted-copy mt-2 text-sm">Newest first, visible only to this browser session.</p>
             </div>
-            <span id="history-count" class="text-xs font-semibold text-[#78857f]">Loading history</span>
+            <span id="history-count" class="subtle-copy text-xs font-semibold">Loading history</span>
           </div>
 
           <div id="history-list" class="grid gap-3 pt-6" aria-live="polite" aria-busy="true">
@@ -119,13 +120,13 @@
           </div>
 
           <div class="mt-7 flex justify-center">
-            <button id="load-more" class="hidden min-h-11 rounded-[6px] border border-[#9eaaa4] bg-white px-5 text-sm font-semibold text-[#27372f] transition hover:border-[#173c31] hover:text-[#173c31] focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7cab91] disabled:opacity-55" type="button">Load more</button>
+            <button id="load-more" class="secondary-button hidden min-h-11 rounded-[6px] border px-5 text-sm font-semibold transition disabled:opacity-55" type="button">Load more</button>
           </div>
         </div>
       </section>
     </main>
 
-    <footer class="border-t border-[#2d4c40] bg-[#12251e] text-[#b5c6be]">
+    <footer class="site-footer border-t">
       <div class="mx-auto flex max-w-[1240px] flex-col gap-2 px-5 py-7 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <span>Ensub · AI Contextual English Assistant</span>
         <span>Context is private to your anonymous session</span>

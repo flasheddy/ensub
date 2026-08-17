@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { verifyDist } from "../scripts/verify-dist.mjs";
+import { REQUIRED_FILES, verifyDist } from "../scripts/verify-dist.mjs";
 
 const repositoryRoot = new URL("../../../", import.meta.url);
 
@@ -27,6 +27,10 @@ test("GitHub Pages builds with Bun and publishes only the web dist artifact", as
   );
 
   assert.match(workflow, /bun-version:\s*1\.3\.14/);
+  assert.match(workflow, /dtolnay\/rust-toolchain@1\.93/);
+  assert.match(workflow, /- crates\/theme\/\*\*/);
+  assert.match(workflow, /- Cargo\.toml/);
+  assert.match(workflow, /- Cargo\.lock/);
   assert.match(workflow, /working-directory:\s*crates\/web_site/);
   assert.match(workflow, /run:\s*bun install --frozen-lockfile/);
   assert.match(workflow, /run:\s*bun test/);
@@ -36,27 +40,51 @@ test("GitHub Pages builds with Bun and publishes only the web dist artifact", as
   assert.doesNotMatch(workflow, /path:\s*\.\s*$/m);
 });
 
-test("Vercel revalidates the retirement worker and Supabase browser configuration", async () => {
-  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
-  const headersBySource = new Map(config.headers.map((entry) => [entry.source, entry.headers]));
-
-  assert.deepEqual(headersBySource.get("/js/supabase-config.js"), [
-    { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
-  ]);
-  assert.deepEqual(headersBySource.get("/service-worker.js"), [
-    { key: "Cache-Control", value: "public, max-age=0, must-revalidate" },
-  ]);
+test("the web package has no Vercel deployment configuration", async () => {
+  await assert.rejects(
+    access(new URL("../vercel.json", import.meta.url)),
+    (error) => error?.code === "ENOENT",
+  );
 });
 
 test("the static build copies only the contextual app deployment files", async () => {
   const source = await readFile(new URL("../scripts/build.mjs", import.meta.url), "utf8");
 
-  assert.match(source, /"vercel\.json"/);
+  assert.doesNotMatch(source, /vercel/i);
   assert.match(source, /"index\.html"/);
   assert.match(source, /"styles\.css"/);
   assert.match(source, /"js"/);
   assert.match(source, /"service-worker\.js"/);
   assert.doesNotMatch(source, /wasm-pack|"pkg"|"assets"/);
+  assert.match(source, /cargo/);
+  assert.match(source, /ensub-theme-css/);
+  assert.match(source, /theme\.css/);
+  assert.match(source, /--locked/);
+});
+
+test("the page loads generated semantic theme variables before component styles", async () => {
+  const source = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const themeLink = source.indexOf('href="./theme.css"');
+  const stylesLink = source.indexOf('href="./styles.css"');
+
+  assert.notEqual(themeLink, -1);
+  assert.ok(themeLink < stylesLink);
+  assert.match(source, /<meta name="theme-color" content="#1e1e2e">/);
+});
+
+test("web presentation uses semantic theme variables and state attributes", async () => {
+  const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const view = await readFile(new URL("../js/vocabulary-view.js", import.meta.url), "utf8");
+  const indexWithoutThemeFallback = index.replace("#1e1e2e", "");
+
+  assert.doesNotMatch(indexWithoutThemeFallback, /#[0-9a-f]{3,8}/i);
+  assert.doesNotMatch(styles, /#[0-9a-f]{3,8}|rgba?\(/i);
+  assert.doesNotMatch(view, /#[0-9a-f]{3,8}|rgba?\(/i);
+  assert.match(styles, /var\(--ensub-color-background\)/);
+  assert.match(styles, /var\(--ensub-color-accent\)/);
+  assert.match(view, /dataset\.status/);
+  assert.match(view, /dataset\.kind/);
 });
 
 test("the page pins browser dependencies and excludes old runtime entrypoints", async () => {
@@ -110,4 +138,8 @@ test("the bundle verifier identifies the referring file and missing asset", asyn
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("the deployment verifier requires generated theme CSS", () => {
+  assert.ok(REQUIRED_FILES.includes("theme.css"));
 });

@@ -5,5 +5,4 @@
 /.private/
 /prd.md
 /docs/superpowers/
-.vercel
 .env*

@@ -12,14 +12,15 @@ use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
+use ensub_theme::Theme;
 use language_engine::{capture_from_entry, word_id_for_lemma, Lexicon};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use thiserror::Error;
 
 use crate::{
-    render, update, AppKey, CaptureFeedback, Document, DocumentFormat, Effect, InputEvent,
-    InputKind, Message, Model, WordDetails,
+    render_with_theme, update, AppKey, CaptureFeedback, ColorPolicy, Document, DocumentFormat,
+    Effect, InputEvent, InputKind, Message, Model, WordDetails,
 };
 
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -179,6 +180,21 @@ where
     L: Lexicon,
     C: Fn() -> DateTime<Utc>,
 {
+    run_with_theme(config, Theme::default(), storage, lexicon, clock)
+}
+
+pub fn run_with_theme<S, L, C>(
+    config: TuiConfig,
+    theme: Theme,
+    storage: &mut S,
+    lexicon: &L,
+    clock: C,
+) -> Result<(), TuiError>
+where
+    S: StorageAdapter,
+    L: Lexicon,
+    C: Fn() -> DateTime<Utc>,
+{
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(TuiError::NotTerminal);
     }
@@ -217,10 +233,11 @@ where
         &config.working_directory,
     );
     let mut last_due_refresh = Instant::now();
+    let color_policy = ColorPolicy::from_env();
 
     while !model.should_quit() {
         terminal
-            .draw(|frame| render(frame, &model))
+            .draw(|frame| render_with_theme(frame, &model, &theme, color_policy))
             .map_err(|source| TuiError::Terminal {
                 operation: "render",
                 source,

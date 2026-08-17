@@ -13,19 +13,25 @@ flowchart TB
 
     tui --> core
     tui --> language
+    tui --> theme["ensub-theme"]
 
     gui["ensub-gui"] --> core
     gui --> language
     gui --> sqlite
+    gui --> theme
 
     applet["ensub-applet"] --> core
     applet --> sqlite
+    applet --> theme
+
+    cli --> theme
 
     sqlite --> core
     sqlite --> language
     language --> core
 
     web["Contextual web app"] --> supabase["Supabase Auth, Database, and Edge Function"]
+    web -. generated CSS .-> theme
     supabase --> provider["OpenAI-compatible endpoint"]
     wasm --> core
     wasm --> language
@@ -43,6 +49,7 @@ flowchart TB
 | `crates/core_engine` | `core_engine` | Owned domain records, SM-2 scheduling, native-agnostic storage contracts, and library/history read models |
 | `crates/language_engine` | `language_engine` | Sentence and word segmentation, morphology, capture construction, lexicon contracts, browser lexicon, and optional document parsing |
 | `crates/llm_client` | `ensub-llm` | Optional client for contextual disambiguation through OpenAI-compatible endpoints |
+| `crates/theme` | `ensub-theme` | Dependency-free semantic RGB roles, Catppuccin Mocha Mauve default, and deterministic CSS export |
 | `crates/sqlite_storage` | `ensub-sqlite` | SQLite implementation, migrations, standard paths, and native bundled lexicon extraction |
 | `crates/cli` | `ensub-cli` | `clap` arguments, terminal prompts, command orchestration, and the `esb` binary |
 | `crates/tui` | `ensub-tui` | Ratatui reader/review model, event loop, effects, terminal safety, and rendering |
@@ -132,6 +139,15 @@ Browser snapshot storage is not connected to native SQLite and has no
 synchronization or remote backend.
 
 ## Presentation Architecture
+
+`ensub-theme` defines semantic colors without depending on any UI toolkit. Its
+`Theme` values are developer-configurable, and Catppuccin Mocha Mauve is the
+only built-in preset and the default. TUI, dialoguer, COSMIC GUI, and COSMIC
+applet adapters convert the RGB roles locally. The static web build runs the
+theme exporter to generate `dist/theme.css`; generated CSS is not committed.
+Typography, spacing, radii, shadows, and motion remain owned by each frontend.
+Plain CLI output, Clap help styling, and WASM presentation APIs do not depend
+on the theme crate.
 
 The TUI, GUI, and applet use explicit model-update-effect boundaries:
 

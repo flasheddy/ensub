@@ -16,6 +16,7 @@ path = "src/main.rs"
 core_engine = { path = "../core_engine" }
 language_engine = { path = "../language_engine", features = ["document"] }
 ensub-sqlite = { path = "../sqlite_storage" }
+ensub-theme.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

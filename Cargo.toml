@@ -8,6 +8,7 @@ members = [
   "crates/language_engine",
   "crates/llm_client",
   "crates/sqlite_storage",
+  "crates/theme",
   "crates/tui",
   "crates/wasm_bridge",
   "tools/lexicon_builder",
@@ -45,6 +46,7 @@ sentencex = "0.1.30"
 sha2 = "0.10"
 tempfile = "3.27"
 thiserror = "2"
+ensub-theme = { path = "crates/theme" }
 tokio = { version = "1", features = ["process", "rt", "time"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "=0.2.0"

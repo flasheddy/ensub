@@ -1695,6 +1695,7 @@ dependencies = [
  "chrono",
  "core_engine",
  "ensub-sqlite",
+ "ensub-theme",
  "libcosmic",
  "thiserror 2.0.20",
  "tokio",
@@ -1712,6 +1713,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "ensub-sqlite",
+ "ensub-theme",
  "ensub-tui",
  "language_engine",
  "tempfile",
@@ -1726,6 +1728,7 @@ dependencies = [
  "clap",
  "core_engine",
  "ensub-sqlite",
+ "ensub-theme",
  "language_engine",
  "libcosmic",
  "tempfile",
@@ -1778,12 +1781,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ensub-theme"
+version = "0.1.0"
+
+[[package]]
 name = "ensub-tui"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "core_engine",
  "crossterm",
+ "ensub-theme",
  "language_engine",
  "ratatui",
  "tempfile",

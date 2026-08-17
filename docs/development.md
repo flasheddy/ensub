@@ -11,7 +11,7 @@ rules remain authoritative in [`AGENTS.md`](../AGENTS.md).
 - Native database: bundled SQLite through `rusqlite`
 - Desktop toolkit: pinned `libcosmic` Git revision
 - Web target: `wasm32-unknown-unknown`
-- Static-site tooling: Node.js built-ins plus `wasm-pack`; no npm dependencies
+- Static-site tooling: Bun 1.3.14 and Node.js built-ins; no registry dependencies
 
 The committed `Cargo.lock` is part of the application workspace and must be
 used for reproducible installation and validation.
@@ -27,6 +27,7 @@ crates/
   language_engine/    parsing, morphology, lexicons, documents
   llm_client/          optional OpenAI-compatible disambiguation adapter
   sqlite_storage/     native persistence and bundled lexicon
+  theme/              semantic RGB themes and CSS exporter
   tui/                Ratatui reader and review panel
   wasm_bridge/        browser API and snapshot persistence
   web_site/           static contextual vocabulary application
@@ -82,6 +83,7 @@ cargo test -p ensub-llm
 cargo test -p ensub-sqlite
 cargo test -p ensub-cli
 cargo test -p ensub-tui
+cargo test -p ensub-theme
 cargo test -p ensub-gui
 cargo test -p ensub-applet
 ```
@@ -110,14 +112,19 @@ The site scripts test and assemble the vanilla browser application into `dist`:
 
 ```bash
 cd crates/web_site
-npm test
-npm run build
-npm run serve
+bun install --frozen-lockfile
+bun test
+bun run build
+bun run verify:dist
+bun run serve
 ```
 
-The static build copies HTML, CSS, JavaScript, and Vercel configuration only.
-Supabase schema and Edge Function source remain deployment inputs rather than
-browser assets. See the web app README for backend setup and secret names.
+The static build requires Rust 1.93 and runs the `ensub-theme-css` exporter to
+create `dist/theme.css` before copying the HTML, component CSS, JavaScript, and
+retirement service worker required by GitHub Pages. Generated theme CSS stays
+ignored and is not checked in. Supabase schema and Edge Function source remain
+deployment inputs rather than browser assets. See the web app README for
+backend setup and secret names.
 
 ## Offline Lexicon Development
 

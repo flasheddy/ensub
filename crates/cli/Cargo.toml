@@ -17,6 +17,7 @@ core_engine = { path = "../core_engine" }
 dialoguer.workspace = true
 dirs.workspace = true
 ensub-sqlite = { path = "../sqlite_storage" }
+ensub-theme.workspace = true
 ensub-tui = { path = "../tui" }
 language_engine = { path = "../language_engine" }
 

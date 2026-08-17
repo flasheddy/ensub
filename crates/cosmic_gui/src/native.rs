@@ -9,11 +9,13 @@ use cosmic::app::{Core, Settings, Task};
 use cosmic::iced::{clipboard, event, keyboard, Length, Size, Subscription};
 use cosmic::{executor, widget, ApplicationExt, Element};
 use ensub_sqlite::{BundledLexicon, SqliteStorage};
+use ensub_theme::Theme;
 use language_engine::{capture_from_candidate, extract_candidates, ParseOptions};
 
 use crate::{
-    update, DashboardData, Effect, GlobalShortcut, KeyEventKind, Message as DomainMessage, Model,
-    Page, ReaderEffect, ReaderKey, ReaderMessage, ReaderShortcut, ReviewPhase,
+    to_cosmic_theme, update, DashboardData, Effect, GlobalShortcut, KeyEventKind,
+    Message as DomainMessage, Model, Page, ReaderEffect, ReaderKey, ReaderMessage, ReaderShortcut,
+    ReviewPhase,
 };
 
 mod reader;
@@ -26,15 +28,20 @@ pub struct GuiFlags {
 }
 
 pub fn run(flags: GuiFlags) -> cosmic::iced::Result {
+    run_with_theme(flags, Theme::default())
+}
+
+pub fn run_with_theme(flags: GuiFlags, theme: Theme) -> cosmic::iced::Result {
     let size = if flags.capture_mode {
         Size::new(560.0, 420.0)
     } else {
         Size::new(1180.0, 760.0)
     };
+    let settings = Settings::default().theme(to_cosmic_theme(theme)).size(size);
     if flags.capture_mode {
-        cosmic::app::run::<HudApplication>(Settings::default().size(size), flags)
+        cosmic::app::run::<HudApplication>(settings, flags)
     } else {
-        cosmic::app::run::<NativeApp>(Settings::default().size(size), flags)
+        cosmic::app::run::<NativeApp>(settings, flags)
     }
 }
 

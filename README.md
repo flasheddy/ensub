@@ -118,6 +118,7 @@ Portable policy is separated from platform I/O:
 ```text
 core_engine       domain records, SM-2 scheduling, storage contracts
 language_engine   tokenization, morphology, documents, lexicon contracts
+ensub-theme       portable semantic RGB themes and CSS export
 ensub-sqlite      native SQLite storage and bundled offline lexicon
 ensub-cli         command dispatch and terminal prompts
 ensub-tui         terminal reader and quick-review state machine
@@ -128,6 +129,8 @@ ensub-wasm        browser bindings and local snapshot storage
 
 `core_engine` has no UI, database, platform, async-runtime, or WASM dependency.
 Native and browser adapters depend inward on its `StorageAdapter` contract.
+Visual frontends adapt the shared `ensub-theme` semantic colors to their own
+toolkits; Catppuccin Mocha Mauve is the default preset.
 
 ## Development
 

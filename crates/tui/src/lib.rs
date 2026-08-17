@@ -16,5 +16,7 @@ pub use document::{
     Block, BlockKind, Document, DocumentFormat, DocumentToken, InlineStyle, StyledRange,
 };
 pub use layout::{DocumentLayout, TokenPlacement, VisualLine};
-pub use runtime::{execute_effect, run, TerminalControl, TerminalGuard, TuiConfig, TuiError};
-pub use view::render;
+pub use runtime::{
+    execute_effect, run, run_with_theme, TerminalControl, TerminalGuard, TuiConfig, TuiError,
+};
+pub use view::{render, render_with_theme, ColorPolicy};

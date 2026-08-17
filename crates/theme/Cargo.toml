@@ -1,0 +1,12 @@
+[package]
+name = "ensub-theme"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Portable semantic color themes for Ensub frontends"
+
+[[bin]]
+name = "ensub-theme-css"
+path = "src/bin/ensub-theme-css.rs"

@@ -5,8 +5,9 @@
 mod native;
 mod reader;
 mod reducer;
+mod theme;
 
-pub use native::{run, GuiFlags};
+pub use native::{run, run_with_theme, GuiFlags};
 pub use reader::{
     build_block_runs, reader_badge, reader_uses_split_layout, update_reader, GlobalShortcut,
     KeyEventKind, ReaderBadge, ReaderEffect, ReaderKey, ReaderMessage, ReaderModel, ReaderRun,
@@ -16,3 +17,4 @@ pub use reducer::{
     update, update_hud, DashboardData, Effect, HudEffect, HudMessage, HudModel, Message, Model,
     Page, ReviewModel, ReviewPhase,
 };
+pub use theme::to_cosmic_theme;

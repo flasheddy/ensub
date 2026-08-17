@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 
 export const REQUIRED_FILES = [
   "index.html",
+  "theme.css",
   "styles.css",
   "service-worker.js",
-  "vercel.json",
   "js/app.js",
   "js/supabase-api.js",
   "js/supabase-config.js",

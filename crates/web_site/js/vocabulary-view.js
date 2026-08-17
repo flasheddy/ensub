@@ -55,9 +55,7 @@ export function setReady(ready) {
   const session = document.querySelector("#session-state");
   button.disabled = !ready;
   session.textContent = ready ? "Private session ready" : "Connecting";
-  session.className = ready
-    ? "mt-1 shrink-0 text-xs font-semibold text-[#3f795d]"
-    : "mt-1 shrink-0 text-xs font-semibold text-[#6b7973]";
+  session.dataset.status = ready ? "ready" : "connecting";
 }
 
 export function setBootstrapError(message) {
@@ -68,7 +66,7 @@ export function setBootstrapError(message) {
   alert.classList.toggle("flex", Boolean(message));
   if (message) {
     session.textContent = "Session unavailable";
-    session.className = "mt-1 shrink-0 text-xs font-semibold text-[#a13f35]";
+    session.dataset.status = "error";
   }
 }
 
@@ -83,15 +81,15 @@ export function setSubmitting(submitting) {
 export function showNotice(message, type) {
   const notice = document.querySelector("#form-notice");
   notice.textContent = message;
-  notice.className = type === "success"
-    ? "mt-5 rounded-[5px] border border-[#acd0ba] bg-[#edf8f1] px-4 py-3 text-sm text-[#23573d]"
-    : "mt-5 rounded-[5px] border border-[#dfb8b1] bg-[#fff3f0] px-4 py-3 text-sm text-[#7b3027]";
+  notice.className = "mt-5 rounded-[5px] border px-4 py-3 text-sm";
+  notice.dataset.kind = type === "success" ? "success" : "error";
 }
 
 export function clearNotice() {
   const notice = document.querySelector("#form-notice");
   notice.textContent = "";
   notice.className = "mt-5 hidden rounded-[5px] border px-4 py-3 text-sm";
+  delete notice.dataset.kind;
 }
 
 export function renderResult(record) {
@@ -104,13 +102,13 @@ export function renderResult(record) {
   appendBadge(badges, "Part of speech", record.partOfSpeech);
   appendBadge(badges, "Confidence", formatConfidence(record.confidence));
 
-  const phrase = element("p", "mt-7 font-serif text-4xl font-semibold leading-tight text-white", record.targetPhrase);
-  const sentence = element("blockquote", "mt-4 border-l-2 border-[#d7f06b] pl-4 font-serif text-lg leading-8 text-[#e7f0eb]", record.targetSentence);
+  const phrase = element("p", "primary-copy mt-7 font-serif text-4xl font-semibold leading-tight", record.targetPhrase);
+  const sentence = element("blockquote", "result-sentence mt-4 border-l-2 pl-4 font-serif text-lg leading-8", record.targetSentence);
 
-  const definitionLabel = element("p", "mt-7 text-[10px] font-bold uppercase text-[#9fb9ac]", "Definition in context");
-  const definition = element("p", "mt-2 text-base leading-7 text-white", record.definition);
-  const nuanceLabel = element("p", "mt-6 text-[10px] font-bold uppercase text-[#9fb9ac]", "Nuance");
-  const nuance = element("p", "mt-2 text-sm leading-6 text-[#c8d8d0]", record.nuance);
+  const definitionLabel = element("p", "result-label mt-7 text-[10px] font-bold uppercase", "Definition in context");
+  const definition = element("p", "primary-copy mt-2 text-base leading-7", record.definition);
+  const nuanceLabel = element("p", "result-label mt-6 text-[10px] font-bold uppercase", "Nuance");
+  const nuance = element("p", "muted-copy mt-2 text-sm leading-6", record.nuance);
 
   panel.append(badges, phrase, sentence, definitionLabel, definition, nuanceLabel, nuance);
 }

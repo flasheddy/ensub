@@ -2,12 +2,18 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, TimeZone, Utc};
 use core_engine::{initial_review_state, CaptureResult, ReviewCard, WordId, WordRecord};
+use ensub_theme::{Rgb, Theme};
 use ensub_tui::{
-    render, update, AppKey, CaptureFeedback, Document, DocumentFormat, InputEvent, InputKind,
-    Message, Model, WordDetails,
+    render, render_with_theme, update, AppKey, CaptureFeedback, ColorPolicy, Document,
+    DocumentFormat, InputEvent, InputKind, Message, Model, WordDetails,
 };
 use language_engine::{Definition, LexiconEntry};
-use ratatui::{backend::TestBackend, Terminal};
+use ratatui::{
+    backend::TestBackend,
+    buffer::Buffer,
+    style::{Color, Modifier},
+    Terminal,
+};
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 8, 15, 10, 0, 0)
@@ -75,6 +81,64 @@ fn draw(model: &Model, width: u16, height: u16) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn draw_themed(
+    model: &Model,
+    width: u16,
+    height: u16,
+    theme: &Theme,
+    policy: ColorPolicy,
+) -> Buffer {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("test terminal must create");
+    terminal
+        .draw(|frame| render_with_theme(frame, model, theme, policy))
+        .expect("themed test view must render");
+    terminal.backend().buffer().clone()
+}
+
+fn find_text(buffer: &Buffer, needle: &str) -> (u16, u16) {
+    for y in 0..buffer.area.height {
+        let row = (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect::<String>();
+        if let Some(x) = row.find(needle) {
+            return (
+                u16::try_from(x).expect("ASCII test label offset must fit"),
+                y,
+            );
+        }
+    }
+    panic!("test label {needle:?} was not rendered");
+}
+
+fn sentinel_theme() -> Theme {
+    Theme {
+        background: Rgb::new(1, 2, 3),
+        surface: Rgb::new(4, 5, 6),
+        surface_raised: Rgb::new(7, 8, 9),
+        surface_overlay: Rgb::new(10, 11, 12),
+        border: Rgb::new(13, 14, 15),
+        border_strong: Rgb::new(16, 17, 18),
+        text: Rgb::new(19, 20, 21),
+        text_muted: Rgb::new(22, 23, 24),
+        text_subtle: Rgb::new(25, 26, 27),
+        accent: Rgb::new(28, 29, 30),
+        on_accent: Rgb::new(31, 32, 33),
+        focus: Rgb::new(34, 35, 36),
+        selection: Rgb::new(37, 38, 39),
+        on_selection: Rgb::new(40, 41, 42),
+        success: Rgb::new(43, 44, 45),
+        warning: Rgb::new(46, 47, 48),
+        danger: Rgb::new(49, 50, 51),
+        info: Rgb::new(52, 53, 54),
+        ..Theme::default()
+    }
+}
+
+fn ratatui(color: Rgb) -> Color {
+    Color::Rgb(color.red, color.green, color.blue)
 }
 
 #[test]
@@ -153,4 +217,42 @@ fn path_cursor_uses_terminal_display_width() {
         .expect("test cursor position must be available");
 
     assert_eq!(cursor.x, 6);
+}
+
+#[test]
+fn semantic_theme_colors_the_canvas_statuses_and_selection() {
+    let mut model = reader(120, 26);
+    let theme = sentinel_theme();
+    let _ = update(
+        &mut model,
+        Message::DueCountLoaded(Err("theme error".to_string())),
+    );
+
+    let buffer = draw_themed(&model, 120, 26, &theme, ColorPolicy::Enabled);
+
+    assert_eq!(buffer[(0, 0)].bg, ratatui(theme.background));
+    let mode = find_text(&buffer, "NORMAL");
+    assert_eq!(buffer[mode].fg, ratatui(theme.accent));
+    let error = find_text(&buffer, "theme error");
+    assert_eq!(buffer[error].fg, ratatui(theme.danger));
+    let phonetic = find_text(&buffer, "ih-MER-zhuhn");
+    assert_eq!(buffer[phonetic].fg, ratatui(theme.text_muted));
+    let selected = find_text(&buffer, "Immersion");
+    assert_eq!(buffer[selected].fg, ratatui(theme.on_selection));
+    assert_eq!(buffer[selected].bg, ratatui(theme.selection));
+    assert!(buffer[selected].modifier.contains(Modifier::BOLD));
+    assert!(!buffer[selected].modifier.contains(Modifier::REVERSED));
+}
+
+#[test]
+fn disabled_color_policy_resets_every_cell_but_keeps_modifiers() {
+    let model = reader(120, 26);
+    let buffer = draw_themed(&model, 120, 26, &sentinel_theme(), ColorPolicy::Disabled);
+
+    assert!(buffer.content().iter().all(|cell| {
+        cell.fg == Color::Reset && cell.bg == Color::Reset && cell.underline_color == Color::Reset
+    }));
+    let selected = find_text(&buffer, "Immersion");
+    assert!(buffer[selected].modifier.contains(Modifier::BOLD));
+    assert!(!buffer[selected].modifier.contains(Modifier::REVERSED));
 }

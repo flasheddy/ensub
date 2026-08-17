@@ -8,6 +8,7 @@ rust-version.workspace = true
 chrono.workspace = true
 core_engine = { path = "../core_engine" }
 crossterm.workspace = true
+ensub-theme.workspace = true
 language_engine = { path = "../language_engine", features = ["document"] }
 ratatui.workspace = true
 thiserror.workspace = true

@@ -4,7 +4,7 @@
 
 - Use Rust 2021 for every crate in this workspace.
 - Keep domain models, scheduling policy, and storage interfaces in `crates/core_engine`.
-- Workspace packages are `core_engine`, `language_engine`, `ensub-sqlite`, `ensub-cli`, `ensub-tui`, `ensub-wasm`, `ensub-gui`, `ensub-applet`, `ensub-llm`, and `ensub-lexicon-builder`.
+- Workspace packages are `core_engine`, `language_engine`, `ensub-theme`, `ensub-sqlite`, `ensub-cli`, `ensub-tui`, `ensub-wasm`, `ensub-gui`, `ensub-applet`, `ensub-llm`, and `ensub-lexicon-builder`.
 - Keep unrelated changes out of focused work.
 
 ## Architecture
