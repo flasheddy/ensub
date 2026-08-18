@@ -223,6 +223,57 @@ fn exported_player_lookup_and_capture_flow_is_offline_and_atomic() {
     storage.remove_item(key).expect("fixture must clean up");
 }
 
+#[wasm_bindgen_test]
+fn v01_golden_snapshot_migrates_to_v2_in_firefox_after_committed_review() {
+    let key = "ensub.player-learning-browser-migration.v1";
+    let storage = web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .expect("browser test requires localStorage");
+    let original = include_str!("fixtures/browser-snapshot-v1.json");
+    storage
+        .set_item(key, original)
+        .expect("golden snapshot must install");
+    let bytes = lexicon_bytes();
+    let mut learning =
+        EnsubPlayerLearning::new(Uint8Array::from(bytes.as_slice()), key.to_string(), false)
+            .expect("v0.1 snapshot must open");
+    let due: DueReviewsDto = serde_wasm_bindgen::from_value(
+        learning
+            .due_reviews(
+                serde_wasm_bindgen::to_value(&DueReviewsInputDto {
+                    as_of_ms: 1_755_244_800_000,
+                    limit: 10,
+                })
+                .expect("migration query must encode"),
+            )
+            .expect("v0.1 review must load"),
+    )
+    .expect("migration queue must decode");
+    let prompt = &due.cards[0];
+    learning
+        .review(
+            serde_wasm_bindgen::to_value(&RateReviewInputDto {
+                word_id: prompt.word_id.clone(),
+                review_token: prompt.review_token.clone(),
+                rating: 4,
+                reviewed_at_ms: 1_755_244_800_000,
+            })
+            .expect("migration rating must encode"),
+        )
+        .expect("migration rating must commit");
+    let migrated = storage
+        .get_item(key)
+        .expect("migrated snapshot must read")
+        .expect("migrated snapshot must exist");
+    let value: serde_json::Value =
+        serde_json::from_str(&migrated).expect("migrated snapshot must be JSON");
+    assert_eq!(value["schemaVersion"], 2);
+    assert_ne!(migrated, original);
+    storage
+        .remove_item(key)
+        .expect("migration fixture must clean up");
+}
+
 wasm_bindgen_test_configure!(run_in_browser);
 
 fn lexicon_bytes() -> Vec<u8> {

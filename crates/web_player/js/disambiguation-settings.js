@@ -66,5 +66,16 @@ export function createDisambiguationSettings({
       local.setItem(consentKey(adapterId, endpointUrl), JSON.stringify(record));
       return record;
     },
+    clear() {
+      const consentKeys = [];
+      for (let index = 0; index < local.length; index += 1) {
+        const key = local.key(index);
+        if (key?.startsWith(CONSENT_PREFIX)) consentKeys.push(key);
+      }
+      for (const key of consentKeys) local.removeItem(key);
+      local.removeItem(DISAMBIGUATION_CONFIG_KEY);
+      local.removeItem(PERSISTENT_CREDENTIAL_KEY);
+      session.removeItem(SESSION_CREDENTIAL_KEY);
+    },
   };
 }

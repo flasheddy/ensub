@@ -16,6 +16,7 @@
     <header class="topbar">
       <a class="brand" href="./" aria-label="Ensub Player home"><span class="brand-mark">E</span><span>Ensub Player</span></a>
       <div class="topbar-actions">
+        <button id="local-data-button" class="review-entry" type="button">Local data</button>
         <button id="review-button" class="review-entry" type="button">Review <span id="review-due-count" aria-label="cards due">0</span></button>
         <div class="network-state" id="network-state" role="status">Local workspace</div>
       </div>
@@ -26,8 +27,9 @@
         <label for="feed-url">Podcast feed</label>
         <div class="feed-input-row">
           <input id="feed-url" name="feed-url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/feed.xml" required>
-          <button class="icon-command" type="submit" aria-label="Load podcast feed" title="Load podcast feed">Load</button>
+          <button id="feed-load" class="icon-command" type="submit" aria-label="Load podcast feed" title="Load podcast feed" disabled>Load</button>
         </div>
+        <p id="feed-status" class="feed-status" role="status"></p>
       </form>
       <div class="library-heading">
         <h2>Episodes</h2>
@@ -42,7 +44,7 @@
         <div>
           <h1>Listen with the words in view.</h1>
           <p>Your podcast library and transcripts stay in this browser.</p>
-          <button id="demo-button" class="primary-command" type="button">Load Demo Episode</button>
+          <button id="demo-button" class="primary-command" type="button" disabled>Load Demo Episode</button>
         </div>
       </section>
 
@@ -175,6 +177,23 @@
         <div class="provider-commands">
           <button id="provider-consent-cancel" class="secondary-command" type="button">Cancel</button>
           <button id="provider-consent-confirm" class="primary-command" type="button">Send once</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="local-data-dialog" class="provider-dialog" role="dialog" aria-modal="true" aria-labelledby="local-data-title" hidden>
+      <div class="provider-panel">
+        <h2 id="local-data-title">Local data</h2>
+        <p>Export the exact learning snapshot and Player cache stored in this browser, or reset Ensub data on this site.</p>
+        <p id="local-data-status" class="provider-message" role="status"></p>
+        <div id="local-data-confirmation" class="local-data-confirmation" hidden>
+          <p>This removes cached feeds and transcripts, learning cards, provider settings, credentials, and consent. Other site data and offline app assets are preserved.</p>
+          <button id="local-data-confirm-reset" class="danger-command" type="button">Confirm reset</button>
+        </div>
+        <div class="provider-commands">
+          <button id="local-data-close" class="secondary-command" type="button">Close</button>
+          <button id="local-data-export" class="secondary-command" type="button">Export</button>
+          <button id="local-data-reset" class="danger-command" type="button">Reset</button>
         </div>
       </div>
     </section>

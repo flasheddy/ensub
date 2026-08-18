@@ -7,6 +7,8 @@ import {
 
 class MemoryStorage {
   values = new Map();
+  get length() { return this.values.size; }
+  key(index) { return [...this.values.keys()][index] ?? null; }
   getItem(key) { return this.values.get(key) ?? null; }
   setItem(key, value) { this.values.set(key, String(value)); }
   removeItem(key) { this.values.delete(key); }
@@ -51,4 +53,25 @@ test("consent is scoped to adapter endpoint and disclosure version", () => {
   expect(settings.hasConsent("openai_chat_completions", endpoint)).toBe(true);
   expect(settings.consentRecord("openai_chat_completions", endpoint).disclosureVersion).toBe(DISCLOSURE_VERSION);
   expect(settings.hasConsent("openai_chat_completions", "https://other.example.test/v1/chat/completions")).toBe(false);
+});
+
+test("clear removes Ensub provider configuration credentials and consent only", () => {
+  const local = new MemoryStorage();
+  const session = new MemoryStorage();
+  local.setItem("unrelated", "preserved");
+  session.setItem("unrelated", "preserved");
+  const settings = createDisambiguationSettings({ local, session });
+  settings.save({
+    adapterId: "openai_chat_completions", endpointUrl: "https://provider.example.test/v1/chat/completions",
+    model: "model", credential: "synthetic-secret", rememberCredential: true,
+  });
+  settings.grantConsent("openai_chat_completions", "https://provider.example.test/v1/chat/completions");
+
+  settings.clear();
+
+  expect(settings.load()).toBeNull();
+  expect(settings.credential()).toBe("");
+  expect(local.getItem("unrelated")).toBe("preserved");
+  expect(session.getItem("unrelated")).toBe("preserved");
+  expect([...local.values.keys()].some((key) => key.startsWith("ensub.disambiguation."))).toBe(false);
 });

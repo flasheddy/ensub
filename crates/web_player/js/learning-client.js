@@ -42,5 +42,13 @@ export function createLearningClient({ LearningClass, lexiconBytes, locks = glob
         locks.request(LEARNING_LOCK_NAME, { mode: "exclusive" }, () => learning.review(input)),
       );
     },
+    reset() {
+      if (!writable) {
+        throw new PlayerRuntimeError("writer_coordination_unavailable", "Reset requires browser Web Locks support.");
+      }
+      return Promise.resolve(
+        locks.request(LEARNING_LOCK_NAME, { mode: "exclusive" }, () => learning.reset()),
+      );
+    },
   };
 }

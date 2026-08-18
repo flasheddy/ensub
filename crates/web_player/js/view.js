@@ -17,7 +17,7 @@ function resourceLabel(resource, index) {
 export function createView() {
   const elements = {
     audio: $("audio"), empty: $("empty-state"), workspace: $("episode-workspace"),
-    feedForm: $("feed-form"), feedUrl: $("feed-url"), demo: $("demo-button"),
+    feedForm: $("feed-form"), feedUrl: $("feed-url"), feedLoad: $("feed-load"), feedStatus: $("feed-status"), demo: $("demo-button"),
     list: $("episode-list"), count: $("episode-count"), feedTitle: $("feed-title"),
     title: $("episode-title"), artwork: $("episode-artwork"), playerArtwork: $("player-artwork"),
     playerTitle: $("player-title"), playerFeed: $("player-feed"), transcript: $("transcript"),
@@ -49,6 +49,20 @@ export function createView() {
   let handlers;
   let reviewWasOpen = false;
   let reviewReturnFocus = null;
+  let lookupWasOpen = false;
+  let lookupReturnFocus = null;
+  let settingsWasOpen = false;
+  let settingsReturnFocus = null;
+  let consentWasOpen = false;
+  let consentReturnFocus = null;
+  let activeCueIndices = new Set();
+  let anchorCueIndex = null;
+  let scrolledCueIndex = null;
+
+  function modalControls(dialog) {
+    return [...dialog.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+      .filter((element) => !element.hidden);
+  }
 
   elements.feedForm.addEventListener("submit", (event) => { event.preventDefault(); handlers.loadFeed(elements.feedUrl.value); });
   elements.demo.addEventListener("click", () => handlers.loadDemo());
@@ -89,9 +103,19 @@ export function createView() {
     });
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !elements.reviewDialog.hidden) {
+    const modal = !elements.providerConsentDialog.hidden ? elements.providerConsentDialog
+      : !elements.providerSettingsDialog.hidden ? elements.providerSettingsDialog
+        : !elements.reviewDialog.hidden ? elements.reviewDialog : null;
+    if (event.key === "Escape" && modal) {
       event.preventDefault();
-      handlers.closeReview();
+      if (modal === elements.reviewDialog) handlers.closeReview();
+      else handlers.cancelDisambiguation();
+    } else if (event.key === "Tab" && modal) {
+      const controls = modalControls(modal);
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { last?.focus(); event.preventDefault(); }
+      else if (!event.shiftKey && document.activeElement === last) { first?.focus(); event.preventDefault(); }
     }
   });
   elements.transcript.addEventListener("click", (event) => {
@@ -143,6 +167,9 @@ export function createView() {
     if (transcript === renderedTranscript) return;
     renderedTranscript = transcript;
     cueNodes = [];
+    activeCueIndices = new Set();
+    anchorCueIndex = null;
+    scrolledCueIndex = null;
     if (!transcript) {
       elements.transcript.replaceChildren();
       return;
@@ -198,10 +225,36 @@ export function createView() {
 
   function renderLookup(lookup) {
     const open = lookup.status !== "closed";
+    if (open && !lookupWasOpen) lookupReturnFocus = document.activeElement;
     elements.inspector.hidden = !open;
-    elements.providerSettingsDialog.hidden = !open || lookup.ai.status !== "settings";
-    elements.providerConsentDialog.hidden = !open || lookup.ai.status !== "consent";
-    if (!open) return;
+    const settingsOpen = open && lookup.ai.status === "settings";
+    const consentOpen = open && lookup.ai.status === "consent";
+    elements.providerSettingsDialog.hidden = !settingsOpen;
+    elements.providerConsentDialog.hidden = !consentOpen;
+    if (settingsOpen && !settingsWasOpen) {
+      settingsReturnFocus = document.activeElement;
+      queueMicrotask(() => elements.providerEndpoint.focus());
+    } else if (!settingsOpen && settingsWasOpen && !consentOpen) {
+      settingsReturnFocus?.focus?.();
+      settingsReturnFocus = null;
+    }
+    if (consentOpen && !consentWasOpen) {
+      consentReturnFocus = document.activeElement;
+      queueMicrotask(() => elements.providerConsentCancel.focus());
+    } else if (!consentOpen && consentWasOpen) {
+      consentReturnFocus?.focus?.();
+      consentReturnFocus = null;
+    }
+    settingsWasOpen = settingsOpen;
+    consentWasOpen = consentOpen;
+    if (!open) {
+      const returnFocus = lookupReturnFocus;
+      if (lookupWasOpen) queueMicrotask(() => returnFocus?.focus?.());
+      lookupWasOpen = false;
+      lookupReturnFocus = null;
+      return;
+    }
+    lookupWasOpen = true;
     const result = lookup.result;
     elements.lookupSurface.textContent = lookup.prepared?.surface ?? "Lookup";
     elements.lookupPhonetic.textContent = "";
@@ -313,9 +366,20 @@ export function createView() {
 
   return {
     elements,
-    bind(value) { handlers = value; },
+    bind(value) {
+      handlers = value;
+      elements.feedLoad.disabled = false;
+      elements.demo.disabled = false;
+    },
     render(state) {
       renderEpisodes(state);
+      const feedStatusCopy = {
+        loading: "Loading feed…",
+        browser_access_failed: state.feed.message || "This feed cannot be accessed by the browser.",
+        unavailable: state.feed.message || "The feed is unavailable.",
+        offline: "The feed is unavailable while offline. Cached episodes remain available.",
+      };
+      elements.feedStatus.textContent = feedStatusCopy[state.feed.status] ?? "";
       const open = state.transcript.episode;
       const episode = open?.episode;
       elements.empty.hidden = Boolean(episode);
@@ -362,17 +426,27 @@ export function createView() {
       renderLookup(state.lookup);
       renderReview(state.review);
     },
-    updateSync(sync, follow) {
-      const active = new Set(sync.activeCueIndices);
-      cueNodes.forEach((node, index) => {
-        node.classList.toggle("is-active", active.has(index));
+    updateSync(sync, follow, forceScroll = false) {
+      const nextActive = new Set(sync.activeCueIndices);
+      const changed = new Set([...activeCueIndices, ...nextActive, anchorCueIndex, sync.anchorCueIndex]);
+      changed.delete(null);
+      changed.delete(undefined);
+      for (const index of changed) {
+        const node = cueNodes[index];
+        if (!node) continue;
+        node.classList.toggle("is-active", nextActive.has(index));
         node.classList.toggle("is-anchor", sync.anchorCueIndex === index);
         if (sync.anchorCueIndex === index) node.setAttribute("aria-current", "true");
         else node.removeAttribute("aria-current");
-      });
+      }
+      activeCueIndices = nextActive;
+      anchorCueIndex = sync.anchorCueIndex;
       if (follow === "following") {
         const index = sync.anchorCueIndex ?? sync.precedingCueIndex;
-        cueNodes[index]?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        if (index != null && (forceScroll || index !== scrolledCueIndex)) {
+          cueNodes[index]?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+          scrolledCueIndex = index;
+        }
       }
     },
   };

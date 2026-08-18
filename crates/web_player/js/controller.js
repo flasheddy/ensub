@@ -402,7 +402,7 @@ export function createController({
     manualFollow: () => dispatch({ type: "follow/manual" }),
     resumeFollow() {
       dispatch({ type: "follow/resume" });
-      view.updateSync(state.sync, state.follow);
+      view.updateSync(state.sync, state.follow, true);
     },
   };
   view.bind(handlers);

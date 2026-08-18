@@ -1,12 +1,17 @@
-import { createWorkspaceCoordinator } from "./cache.js";
+import { createIndexedDbStore, createWorkspaceCoordinator } from "./cache.js";
 import { loadLexicon } from "./assets.js";
 import { createController } from "./controller.js";
 import { createLearningClient, LEARNING_STORAGE_KEY } from "./learning-client.js";
+import { createDisambiguationSettings } from "./disambiguation-settings.js";
+import { bindLocalDataControls, createLocalDataManager } from "./local-data.js";
 import { createView } from "./view.js";
 import { createWorkspace, EnsubPlayerLearning, initializeWasm } from "./wasm-client.js";
 
 async function boot() {
   const view = createView();
+  const store = createIndexedDbStore();
+  const disambiguationSettings = createDisambiguationSettings();
+  bindLocalDataControls({ manager: createLocalDataManager({ store, settings: disambiguationSettings }) });
   try {
     await initializeWasm();
     const lexiconBytes = await loadLexicon({
@@ -14,9 +19,9 @@ async function boot() {
       assetUrl: new URL("../assets/lexicon-v1.postcard.gz", import.meta.url),
     });
     const learning = createLearningClient({ LearningClass: EnsubPlayerLearning, lexiconBytes });
-    const coordinator = createWorkspaceCoordinator({ workspaceFactory: createWorkspace });
+    const coordinator = createWorkspaceCoordinator({ store, workspaceFactory: createWorkspace });
     await coordinator.open();
-    const controller = createController({ coordinator, learning, view });
+    const controller = createController({ coordinator, learning, view, disambiguationSettings });
     await controller.start();
     coordinator.listen(async () => {
       await coordinator.reload();

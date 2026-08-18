@@ -139,7 +139,9 @@ parsing, cache validation, and cue-boundary resolution. The PWA owns bounded
 HTTP transport, one DOM audio element, animation-frame scheduling, transcript
 highlight classes, scrolling, focus, and IndexedDB/Web Locks effects. The
 player envelope is deliberately separate from the learning snapshot so its
-schema can evolve independently from learning-storage migrations.
+schema can evolve independently from learning-storage migrations. IndexedDB
+operations resolve on transaction completion rather than request success; an
+abort therefore leaves both persisted bytes and the live workspace unchanged.
 
 M5.4 adds `preparePodcastCapture` to that workspace and a separate
 `EnsubPlayerLearning` facade. Rust revalidates the workspace revision, episode,
@@ -218,6 +220,12 @@ synchronization or remote backend. The WASM graph has no dependency on Ensub
 Context, Supabase, `ensub-llm`, HTTP clients, native SQLite, or native UI crates.
 The PWA's optional user-configured provider transport is a separate host
 adapter; the static build scans for embedded high-confidence credentials.
+
+The Player's local-data boundary exports the exact learning JSON text and the
+opaque Player cache bytes in a versioned, base64-bearing document. It never
+reads provider configuration into that export. Reset deletes only the Player
+snapshot, learning snapshot, and Ensub provider configuration, credential, and
+consent keys, leaving unrelated origin storage and service-worker caches intact.
 
 ## Presentation Architecture
 

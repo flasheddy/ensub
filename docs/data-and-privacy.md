@@ -165,7 +165,11 @@ requires a network connection and does not import the Core WASM snapshot.
 
 ## Backup and Restore
 
-Ensub does not yet provide a built-in export, backup, or restore command.
+Ensub Player provides a **Local data** export containing the exact learning
+snapshot text and the opaque Player IndexedDB snapshot encoded as base64. The
+document is identified by `format: "ensub-local-export"` and `schemaVersion: 1`.
+It excludes provider configuration, credentials, consent records, audio, and
+unrelated origin data. v0.2.0 does not provide an import operation.
 
 For a consistent native backup, either:
 
@@ -189,6 +193,10 @@ operator remains responsible for database backup and retention.
   processes, then remove the specific database only when permanent deletion is
   intended.
 - Core sandbox: use its explicit reset control to delete `ensub.sandbox.v1`.
+- Player: use **Local data** to export first, then confirm reset. Reset removes
+  the Player IndexedDB snapshot, `ensub.sandbox.v1`, and only Ensub provider
+  configuration, credentials, and consent keys. It preserves unrelated origin
+  data and the service-worker shell/lexicon cache.
 - Ensub Context: no reset/delete UI is provided. Removing an
   anonymous user from Supabase deletes that user's vocabulary records.
 

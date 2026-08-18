@@ -22,9 +22,12 @@ export function createIndexedDbStore(indexedDB = globalThis.indexedDB) {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, mode);
       const request = operation(tx.objectStore(STORE_NAME));
-      request.onsuccess = () => resolve(request.result);
+      let result;
+      request.onsuccess = () => { result = request.result; };
       request.onerror = () => reject(request.error);
       tx.onabort = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => resolve(result);
     });
   }
   return {
@@ -34,6 +37,9 @@ export function createIndexedDbStore(indexedDB = globalThis.indexedDB) {
     },
     async save(snapshot) {
       await transaction("readwrite", (store) => store.put(snapshot.slice().buffer, SNAPSHOT_KEY));
+    },
+    async clear() {
+      await transaction("readwrite", (store) => store.delete(SNAPSHOT_KEY));
     },
   };
 }

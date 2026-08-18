@@ -1,6 +1,6 @@
 # Local Linux Packaging
 
-Ensub v0.1.0 release candidates are packaged locally. The scripts in this
+Ensub v0.2.0 releases are packaged locally. The scripts in this
 directory do not push, publish, upload, tag, or create a hosted release.
 
 Build the native binaries, stage a `/usr` installation, validate the desktop

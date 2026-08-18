@@ -161,6 +161,8 @@ bun run serve
 
 Open `http://127.0.0.1:4175` and choose **Load Demo Episode**. The demo uses
 synthetic local media; a remote podcast feed must allow direct browser access.
+The browser gate suite additionally requires Chromium and Firefox; WebKit is
+not a v0.2.0 release gate.
 
 ## Build the Offline Core Sandbox
 
@@ -202,7 +204,7 @@ sh packaging/build-release.sh
 ```
 
 The command creates CLI/TUI and COSMIC archives plus `SHA256SUMS` under
-`target/release-artifacts/v0.1.0-rc1`. It does not publish them.
+`target/release-artifacts/v0.2.0`. It does not publish them.
 
 ## Next Steps
 

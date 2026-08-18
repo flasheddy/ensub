@@ -408,10 +408,22 @@ impl<B: SnapshotBackend> PodcastStorageAdapter for SnapshotStorage<B> {
                 capture.capture.word.id.as_str(),
                 &capture.capture.word.lemma,
             )?;
-            if let Some(existing) = snapshot.podcast_contexts.get(&context_id) {
+            if let Some(existing) = snapshot.podcast_contexts.get_mut(&context_id) {
                 let mut comparable = capture.podcast_context.clone();
                 comparable.context.captured_at = existing.context.captured_at;
                 comparable.context.playback_position_ms = existing.context.playback_position_ms;
+                match (
+                    existing.context.episode.publisher_guid.as_ref(),
+                    comparable.context.episode.publisher_guid.as_ref(),
+                ) {
+                    (None, Some(guid)) => {
+                        existing.context.episode.publisher_guid = Some(guid.clone());
+                    }
+                    (Some(guid), None) => {
+                        comparable.context.episode.publisher_guid = Some(guid.clone());
+                    }
+                    _ => {}
+                }
                 if existing != &comparable {
                     return Err(SnapshotError::PodcastContextConflict(context_id));
                 }

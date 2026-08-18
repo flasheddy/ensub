@@ -9,9 +9,13 @@ turns words encountered in documents or pasted text into vocabulary cards with
 an offline definition, pronunciation, source context, and deterministic SM-2
 review schedule.
 
+Ensub Core v0.1.0 is delivered and stable; `v0.1.0-rc1` is the verified
+repository baseline from which the v0.2.0 interactive Player is built.
+
 The same Rust domain and language engines power a command-line interface, a
-terminal reader, a native COSMIC desktop application and panel applet, and
-portable WASM bindings. Native data stays in SQLite. The separate Ensub Core
+terminal reader, a native COSMIC desktop application and panel applet, and the
+installable Ensub Player for synchronized podcast transcripts, offline lookup,
+capture, and review. Native data stays in SQLite. The separate Ensub Core
 sandbox is an offline browser reference harness backed by `localStorage`. The
 optional Ensub Context companion uses an anonymous Supabase session and an
 OpenAI-compatible model without exposing provider credentials to the browser.
@@ -93,7 +97,7 @@ Ensure `$HOME/.local/bin` is on `PATH`. The applet entry can then be added from
 COSMIC panel settings. Distribution-specific COSMIC and graphics development
 packages may be required to compile `libcosmic`.
 
-Create the two deterministic local v0.1.0-rc1 archives and `SHA256SUMS` with:
+Create the two deterministic local v0.2.0 archives and `SHA256SUMS` with:
 
 ```bash
 sh packaging/build-release.sh
@@ -114,6 +118,7 @@ and the contextual web assistant setup.
 | [Architecture](docs/architecture.md) | Crate boundaries, data flow, storage adapters, and concurrency model |
 | [Development](docs/development.md) | Workspace layout, validation commands, tests, web builds, and release builds |
 | [Data and Privacy](docs/data-and-privacy.md) | Native and browser storage, path overrides, concurrency, backup, and reset behavior |
+| [v0.2.0 Release Audit](docs/release-v0.2.0-audit.md) | PRD acceptance criteria, release-gate evidence, and tag preconditions |
 | [Offline Lexicon](docs/lexicon.md) | Corpus provenance, generated artifacts, extraction, and regeneration |
 | [Ensub Player](crates/web_player/README.md) | PWA build, local cache, direct browser fetching, and preview |
 | [Ensub Core Sandbox](crates/web_sandbox/README.md) | Offline WASM build, verification, and local preview |
@@ -162,6 +167,13 @@ cargo test --workspace
 
 WASM and static-site development has additional target and browser checks;
 they are listed in [Development](docs/development.md).
+
+The v0.2.0 release-hardening checks include production panic and placeholder
+enforcement plus generated Player artifact scanning:
+
+```bash
+sh scripts/verify.sh hardening
+```
 
 ## Lexicon Attribution
 

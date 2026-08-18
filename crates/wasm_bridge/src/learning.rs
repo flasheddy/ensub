@@ -159,6 +159,10 @@ impl<B: SnapshotBackend> PlayerLearning<B> {
         }
     }
 
+    pub fn reset(&mut self) -> Result<(), PlayerLearningError> {
+        self.storage.reset().map_err(Into::into)
+    }
+
     pub fn capture_podcast(
         &mut self,
         input: CapturePodcastInput,

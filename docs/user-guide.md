@@ -252,6 +252,22 @@ Remote audio still requires the enclosure to be cached or reachable. Lookup,
 capture, and reopening previously cached transcripts work offline after the
 player service worker and lexicon assets have installed.
 
+Choose **Review** to open due podcast cards without exposing the answer. Replay
+the saved logical audio slice when the enclosure is available, reveal the
+answer explicitly, then rate recall from 0 through 5. If audio is unavailable,
+the saved sentence remains visible and the rating workflow continues offline.
+
+Choose **Local data** from the top bar to export the exact local learning
+snapshot and Player cache. Provider credentials are excluded. The confirmed
+reset removes only Player cache, learning data, and Ensub provider settings,
+credentials, and consent; it preserves unrelated site data and installed
+offline shell/lexicon assets. v0.2.0 does not import exported documents.
+
+Contextual provider requests occur only after **Explain in context**. The
+consent dialog previews the selected word, saved sentence, candidate local
+senses, and episode label before the first request to an endpoint. Ordinary
+feed, playback, lookup, capture, and review actions never contact the provider.
+
 ## Ensub Context
 
 Enter a target word or phrase, the sentence where it appeared, and optional

@@ -80,6 +80,10 @@ impl EnsubPlayerLearning {
         to_js(&self.inner.review(input).map_err(learning_error)?)
     }
 
+    pub fn reset(&mut self) -> Result<(), JsValue> {
+        self.inner.reset().map_err(learning_error)
+    }
+
     #[wasm_bindgen(js_name = prepareDisambiguation)]
     pub fn prepare_disambiguation(&self, input: JsValue) -> Result<JsValue, JsValue> {
         let input: PrepareDisambiguationInputDto = from_js(input)?;

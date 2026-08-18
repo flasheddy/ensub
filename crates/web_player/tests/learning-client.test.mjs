@@ -10,6 +10,7 @@ test("review reads are unlocked while rating uses the shared exclusive lock", as
     prepareDisambiguation(input) { calls.push(["prepareDisambiguation", input]); return { request: input }; }
     validateDisambiguationResponse(input) { calls.push(["validateDisambiguationResponse", input]); return { explanation: "clear" }; }
     review(input) { calls.push(["review", input]); return { intervalDays: 1 }; }
+    reset() { calls.push(["reset"]); }
   }
   const locks = {
     request(name, options, callback) {
@@ -26,8 +27,11 @@ test("review reads are unlocked while rating uses the shared exclusive lock", as
   expect(client.validateDisambiguationResponse({ request: {}, responseJson: "{}" })).toEqual({ explanation: "clear" });
   await expect(client.review({ wordId: "word", reviewToken: "token", rating: 4, reviewedAtMs: 1 }))
     .resolves.toEqual({ intervalDays: 1 });
+  await client.reset();
 
   expect(calls.filter(([name]) => name === "lock")).toEqual([
     ["lock", LEARNING_LOCK_NAME, { mode: "exclusive" }],
+    ["lock", LEARNING_LOCK_NAME, { mode: "exclusive" }],
   ]);
+  expect(calls).toContainEqual(["reset"]);
 });

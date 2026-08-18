@@ -20,11 +20,36 @@ verify_wasm() {
   WASM_PACK_CACHE="$workspace_root/target/wasm-pack-cache" \
     wasm-pack test --firefox --headless crates/wasm_bridge
   cargo tree -p ensub-wasm --target wasm32-unknown-unknown \
-    | tee "$workspace_root/target/ensub-wasm-tree.txt"
+    >"$workspace_root/target/ensub-wasm-tree.txt"
+  cat "$workspace_root/target/ensub-wasm-tree.txt"
   if grep -E 'ensub-(sqlite|gui|applet|llm|tui)|libcosmic|rusqlite|reqwest|tokio' \
     "$workspace_root/target/ensub-wasm-tree.txt"; then
     echo "native adapter or UI dependency entered the WASM graph" >&2
     exit 1
+  fi
+}
+
+verify_hardening() {
+  # These lints run without test targets, so test fixtures may remain ergonomic
+  # while panic paths stay forbidden in shipped Rust code.
+  cargo clippy --workspace --lib --bins --examples -- \
+    -D clippy::panic -D clippy::unwrap_used -D clippy::expect_used
+
+  if rg -n -i 'TODO|FIXME|mock (persistence|dictionary)|placeholder (persistence|dictionary)' \
+    crates scripts packaging \
+    --glob '!**/tests/**' --glob '!**/testdata/**' --glob '!**/fixtures/**' \
+    --glob '!**/dist/**' --glob '!**/target/**' --glob '!verify.sh'; then
+    echo "release placeholder marker found in production files" >&2
+    exit 1
+  fi
+
+  if [ -d "$workspace_root/crates/web_player/dist" ]; then
+    if rg -n -i '(api[_-]?key|authorization: bearer|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' \
+      "$workspace_root/crates/web_player/dist"; then
+      echo "credential-like content found in Player distribution" >&2
+      exit 1
+    fi
+    gitleaks dir --redact --no-banner "$workspace_root/crates/web_player/dist"
   fi
 }
 
@@ -85,16 +110,18 @@ case "$mode" in
   release-smoke) verify_release_smoke ;;
   release) sh packaging/build-release.sh ;;
   secrets) verify_secrets ;;
+  hardening) verify_hardening ;;
   all)
     verify_rust
     verify_wasm
     verify_web
     verify_release_smoke
+    verify_hardening
     verify_secrets
     sh packaging/build-release.sh
     ;;
   *)
-    echo "usage: $0 {rust|wasm|web|release-smoke|release|secrets|all}" >&2
+    echo "usage: $0 {rust|wasm|web|release-smoke|release|secrets|hardening|all}" >&2
     exit 2
     ;;
 esac

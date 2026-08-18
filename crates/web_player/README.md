@@ -45,7 +45,9 @@ The player stores one opaque Rust snapshot at `snapshot-v1` in the
 `ensub-player` IndexedDB database. Writes are serialized with the
 `ensub.player.workspace.v1` Web Lock and announced through a same-named
 `BroadcastChannel`. Playback position, rate, and volume are session state and
-are not included in the snapshot.
+are not included in the snapshot. IndexedDB write promises resolve only after
+the transaction commits, so an aborted transaction cannot replace the live
+workspace.
 
 Feed and transcript requests are made directly by the browser. URLs must be
 credential-free HTTP(S), requests time out after 15 seconds, redirects are
@@ -56,6 +58,14 @@ Learning captures share the existing `ensub.sandbox.v1` localStorage snapshot
 with the Core harness and use the `ensub.sandbox.storage.v1` Web Lock. Snapshot
 schema v1 is migrated in memory and becomes v2 only after a successful write.
 The player cache remains a separate IndexedDB envelope.
+
+The **Local data** dialog remains available when normal Player boot fails. Its
+export contains the exact learning snapshot text and base64-encoded Player
+cache bytes in the versioned `ensub-local-export` format. Provider settings and
+credentials are excluded. Reset removes only these two Ensub snapshots plus
+Ensub provider configuration, credentials, and consent; unrelated origin data,
+service-worker assets, and native SQLite are preserved. Import is not part of
+the v0.2.0 baseline.
 
 ## Optional Context Provider
 

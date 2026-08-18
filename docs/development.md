@@ -124,11 +124,14 @@ bun run verify:dist
 bun run test:browser
 ```
 
-The browser suite covers demo feed import, DOM audio controls, cue highlighting,
+The browser suite covers demo and real cross-origin CORS feed import, truthful
+no-CORS failure rendering, DOM audio controls, cue highlighting,
 manual-follow behavior, Rust UTF-16 token rendering, keyboard lookup, explicit
-and repeated media capture, persistence, offline reload, and desktop/mobile
-layout. WASM storage tests also cover v1-to-v2 migration, exact-byte recovery
-after failed writes, unknown lookup, and multi-context lemma association.
+and repeated media capture, persistence, offline reload, focus restoration,
+zero implicit provider calls, and 375px-through-desktop layout. WASM storage
+tests use a committed synthetic v0.1 golden snapshot and cover v1-to-v2
+migration, exact-byte recovery after failed writes, unknown lookup, and
+multi-context lemma association.
 
 ## Ensub Core Offline Sandbox
 
@@ -220,10 +223,11 @@ sh scripts/verify.sh wasm
 sh scripts/verify.sh web
 sh scripts/verify.sh release-smoke
 sh scripts/verify.sh secrets
+sh scripts/verify.sh hardening
 sh scripts/verify.sh all
 ```
 
-Create only the deterministic v0.1.0-rc1 native archives with:
+Create only the deterministic v0.2.0 native archives with:
 
 ```bash
 sh packaging/build-release.sh

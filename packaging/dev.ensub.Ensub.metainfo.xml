@@ -18,6 +18,11 @@
     <binary>esb</binary>
   </provides>
   <releases>
+    <release version="0.2.0" date="2026-08-18">
+      <description>
+        <p>Adds the interactive local-first podcast Player, offline lookup and review loop, recoverable browser storage migration, and release hardening gates.</p>
+      </description>
+    </release>
     <release version="0.1.0-rc1" date="2026-08-17">
       <description>
         <p>First release candidate with local CLI, TUI, COSMIC, and offline browser workflows.</p>

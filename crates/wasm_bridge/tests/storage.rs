@@ -324,33 +324,7 @@ fn corrupt_and_newer_snapshots_are_preserved_until_explicit_reset() {
 
 #[test]
 fn v1_snapshot_is_read_without_rewrite_and_upgrades_on_successful_mutation() {
-    let raw_v1 = serde_json::json!({
-        "format": "ensub-browser-storage",
-        "schemaVersion": 1,
-        "revision": 7,
-        "words": {
-            "word-old": {
-                "id": "word-old", "term": "legacy", "lemma": "legacy",
-                "phonetic": "/legacy/", "definition": "noun: existing capture",
-                "createdAt": timestamp(8).timestamp_millis()
-            }
-        },
-        "contexts": {
-            "context-old": {
-                "id": "context-old", "wordId": "word-old",
-                "sentence": "A legacy sentence.", "source": "sandbox",
-                "capturedAt": timestamp(9).timestamp_millis()
-            }
-        },
-        "reviewStates": {
-            "word-old": {
-                "wordId": "word-old", "easeFactor": 2.5, "repetitions": 2,
-                "intervalDays": 6, "nextReviewAt": timestamp(10).timestamp_millis(),
-                "lastRating": 4
-            }
-        }
-    })
-    .to_string();
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
     let mut backend = MemoryBackend::default();
     backend
         .values
@@ -374,15 +348,15 @@ fn v1_snapshot_is_read_without_rewrite_and_upgrades_on_successful_mutation() {
     assert_eq!(upgraded["revision"], 8);
     assert_eq!(upgraded["podcastContexts"], serde_json::json!({}));
     let old = storage
-        .review_state(&WordId::new("word-old"))
+        .review_state(&WordId::new("word-v01"))
         .expect("migrated review must query")
         .expect("migrated review must remain");
-    assert_eq!(old.repetitions, 2);
-    assert_eq!(old.interval_days, 6);
+    assert_eq!(old.repetitions, 0);
+    assert_eq!(old.interval_days, 0);
     let cards = storage
         .due_reviews(timestamp(10))
         .expect("migrated card must query");
-    assert!(cards.iter().any(|card| card.word.lemma == "legacy"));
+    assert!(cards.iter().any(|card| card.word.lemma == "immersion"));
 }
 
 #[test]
@@ -426,6 +400,37 @@ fn podcast_capture_is_atomic_idempotent_and_retains_multiple_encounters() {
     assert!(!second.word_created);
     assert!(second.podcast_context_created);
     assert_eq!(contexts.len(), 2);
+}
+
+#[test]
+fn podcast_capture_accepts_monotonic_publisher_guid_enrichment() {
+    let mut storage = storage(MemoryBackend::default());
+    let first = podcast_capture("cue-1");
+    storage
+        .save_podcast_capture(&first)
+        .expect("capture without GUID must save");
+    let mut enriched = first.clone();
+    enriched.podcast_context.context.episode.publisher_guid = Some("publisher-guid".to_string());
+
+    let repeated = storage
+        .save_podcast_capture(&enriched)
+        .expect("GUID enrichment must remain idempotent");
+    let contexts = storage
+        .podcast_contexts(&first.capture.word.id)
+        .expect("enriched context must load");
+
+    assert!(!repeated.podcast_context_created);
+    assert_eq!(
+        contexts[0].context.episode.publisher_guid.as_deref(),
+        Some("publisher-guid")
+    );
+
+    let mut conflicting = enriched;
+    conflicting.podcast_context.context.episode.publisher_guid = Some("different-guid".to_string());
+    assert!(matches!(
+        storage.save_podcast_capture(&conflicting),
+        Err(SnapshotError::PodcastContextConflict(_))
+    ));
 }
 
 #[test]

@@ -1061,7 +1061,7 @@ dependencies = [
 
 [[package]]
 name = "core_engine"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -1689,7 +1689,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "ensub-applet"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1704,7 +1704,7 @@ dependencies = [
 
 [[package]]
 name = "ensub-cli"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "ensub-gui"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1739,7 +1739,7 @@ dependencies = [
 
 [[package]]
 name = "ensub-lexicon-builder"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ensub-sqlite",
@@ -1756,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "ensub-llm"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "ensub-sqlite"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "core_engine",
@@ -1783,11 +1783,11 @@ dependencies = [
 
 [[package]]
 name = "ensub-theme"
-version = "0.1.0-rc1"
+version = "0.2.0"
 
 [[package]]
 name = "ensub-tui"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "core_engine",
@@ -1803,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "ensub-wasm"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "core_engine",
@@ -3394,7 +3394,7 @@ dependencies = [
 
 [[package]]
 name = "language_engine"
-version = "0.1.0-rc1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "core_engine",
