@@ -22,6 +22,7 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
   let handlers;
   let state;
   const sent = [];
+  const captured = [];
   let consent = false;
   const prepared = {
     request: {
@@ -36,6 +37,10 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
     lookupToken: () => ({ status: "found", entry: { lemma: "go", phonetic: "", definitions: [{ partOfSpeech: "verb", text: "move" }] } }),
     prepareDisambiguation: () => prepareImpl?.() ?? prepared,
     validateDisambiguationResponse: ({ responseJson }) => ({ ...JSON.parse(responseJson) }),
+    capturePodcast: async (input) => {
+      captured.push(input);
+      return { status: "created_card", wordId: "word-go", contextId: "context-1" };
+    },
     dueCount: () => ({ dueCount: 0 }),
   };
   const settings = {
@@ -54,8 +59,23 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
   const view = { elements: { audio: new FakeAudio() }, bind(value) { handlers = value; }, render(value) { state = value; }, updateSync() {} };
   const coordinator = { workspace, mutate: async (method) => method === "selectEpisode" ? { ...episode, transcriptState: "none" } : null };
   createController({ coordinator, learning, view, disambiguationSettings: settings, disambiguationAdapters: adapters });
-  return { get handlers() { return handlers; }, get state() { return state; }, setState(value) { state = value; }, sent, prepared };
+  return { get handlers() { return handlers; }, get state() { return state; }, setState(value) { state = value; }, sent, captured, prepared };
 }
+
+test("capture shortcut commits the prepared lookup through the atomic capture path", async () => {
+  const app = harness();
+  await app.handlers.selectEpisode("episode");
+  await app.handlers.lookupToken({ cueId: "cue", tokenIndex: 0 });
+
+  await app.handlers.handleShortcut({ type: "capture-lookup", selectedLemma: "go" });
+
+  expect(app.captured).toHaveLength(1);
+  expect(app.captured[0]).toMatchObject({
+    draft: { selectedSurface: "went", sentence: "We went home." },
+    selectedLemma: "go",
+  });
+  expect(app.state.lookup.status).toBe("created_card");
+});
 
 test("disambiguation waits for consent then sends only the prepared minimal request", async () => {
   const app = harness({ sendImpl: async () => JSON.stringify({ matchedSenseId: "sense-0-0", explanation: "Past tense of go.", confidence: "high" }) });

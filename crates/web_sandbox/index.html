@@ -13,6 +13,14 @@
       <strong>Ensub Core</strong>
       <span data-testid="stats">0 cards | 0 due</span>
     </header>
+    <section class="storage-recovery" data-testid="storage-recovery" role="alert" hidden>
+      <div>
+        <strong>Learning storage is read-only</strong>
+        <p data-testid="storage-recovery-message"></p>
+        <p data-testid="storage-recovery-status" role="status"></p>
+      </div>
+      <button type="button" data-testid="storage-recovery-export">Export raw snapshot</button>
+    </section>
     <main>
       <section aria-labelledby="parse-heading">
         <h1 id="parse-heading">Offline parser</h1>

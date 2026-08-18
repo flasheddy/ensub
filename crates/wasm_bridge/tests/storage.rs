@@ -10,13 +10,17 @@ use core_engine::{
     ReviewUpdate, StorageAdapter, TranscriptFormat, TranscriptProvenance, TranscriptToken, WordId,
     WordRecord,
 };
-use ensub_wasm::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
+use ensub_wasm::{
+    SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotMigrationStatus, SnapshotStorage,
+    V01_BACKUP_STORAGE_KEY,
+};
 use language_engine::{podcast_capture_from_entry, Definition, LexiconEntry};
 
 #[derive(Default)]
 struct MemoryBackend {
     values: BTreeMap<String, String>,
     fail_next_store: bool,
+    fail_store_key: Option<String>,
     load_count: Cell<u64>,
 }
 
@@ -39,7 +43,7 @@ impl SnapshotBackend for MemoryBackend {
     }
 
     fn store(&mut self, key: &str, value: &str) -> Result<(), Self::Error> {
-        if self.fail_next_store {
+        if self.fail_next_store || self.fail_store_key.as_deref() == Some(key) {
             self.fail_next_store = false;
             return Err(io::Error::new(io::ErrorKind::StorageFull, "quota"));
         }
@@ -295,35 +299,46 @@ fn invalid_batch_and_failed_backend_write_leave_snapshot_unchanged() {
 }
 
 #[test]
-fn corrupt_and_newer_snapshots_are_preserved_until_explicit_reset() {
+fn corrupt_and_newer_snapshots_enter_read_only_recovery_and_are_preserved() {
     let mut corrupt = MemoryBackend::default();
     corrupt
         .values
         .insert("ensub.test".to_string(), "{not-json".to_string());
-    let mut storage = storage(corrupt);
+    let mut corrupt_storage = storage(corrupt);
     assert!(matches!(
-        storage.due_count(timestamp(10)),
+        corrupt_storage.initialize(),
         Err(SnapshotError::CorruptSnapshot(_))
     ));
-    assert_eq!(storage.backend().value("ensub.test"), Some("{not-json"));
-
-    storage
-        .backend_mut()
-        .values
-        .insert(
-            "ensub.test".to_string(),
-            r#"{"format":"ensub-browser-storage","schemaVersion":3,"revision":0,"words":{},"contexts":{},"reviewStates":{},"podcastContexts":{}}"#.to_string(),
-        );
+    assert!(corrupt_storage.is_read_only());
     assert!(matches!(
-        storage.due_count(timestamp(10)),
+        corrupt_storage.reset(),
+        Err(SnapshotError::ReadOnly)
+    ));
+    assert_eq!(
+        corrupt_storage.backend().value("ensub.test"),
+        Some("{not-json")
+    );
+
+    let raw_newer = r#"{"format":"ensub-browser-storage","schemaVersion":3,"revision":0,"words":{},"contexts":{},"reviewStates":{},"podcastContexts":{}}"#;
+    let mut newer = MemoryBackend::default();
+    newer
+        .values
+        .insert("ensub.test".to_string(), raw_newer.to_string());
+    let mut newer_storage = storage(newer);
+    assert!(matches!(
+        newer_storage.initialize(),
         Err(SnapshotError::UnsupportedSchema { actual: 3, .. })
     ));
-    storage.reset().expect("explicit reset must clear storage");
-    assert_eq!(storage.backend().value("ensub.test"), None);
+    assert!(newer_storage.is_read_only());
+    assert!(matches!(
+        newer_storage.reset(),
+        Err(SnapshotError::ReadOnly)
+    ));
+    assert_eq!(newer_storage.backend().value("ensub.test"), Some(raw_newer));
 }
 
 #[test]
-fn v1_snapshot_is_read_without_rewrite_and_upgrades_on_successful_mutation() {
+fn initialization_backs_up_and_migrates_a_v1_snapshot() {
     let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
     let mut backend = MemoryBackend::default();
     backend
@@ -331,12 +346,14 @@ fn v1_snapshot_is_read_without_rewrite_and_upgrades_on_successful_mutation() {
         .insert("ensub.test".to_string(), raw_v1.clone());
     let mut storage = storage(backend);
 
-    assert_eq!(storage.due_count(timestamp(10)).expect("v1 must read"), 1);
-    assert_eq!(storage.backend().value("ensub.test"), Some(raw_v1.as_str()));
-
-    storage
-        .save_capture(&capture("word-a", "alpha", timestamp(10)))
-        .expect("first mutation must migrate");
+    assert_eq!(
+        storage.initialize().expect("v1 migration must succeed"),
+        SnapshotMigrationStatus::Migrated
+    );
+    assert_eq!(
+        storage.backend().value(V01_BACKUP_STORAGE_KEY),
+        Some(raw_v1.as_str())
+    );
     let upgraded: serde_json::Value = serde_json::from_str(
         storage
             .backend()
@@ -357,6 +374,168 @@ fn v1_snapshot_is_read_without_rewrite_and_upgrades_on_successful_mutation() {
         .due_reviews(timestamp(10))
         .expect("migrated card must query");
     assert!(cards.iter().any(|card| card.word.lemma == "immersion"));
+}
+
+#[test]
+fn initialization_does_not_rewrite_empty_or_current_storage() {
+    let mut empty = storage(MemoryBackend::default());
+    assert_eq!(
+        empty.initialize().expect("empty storage must initialize"),
+        SnapshotMigrationStatus::Empty
+    );
+    assert!(empty.backend().values.is_empty());
+
+    let raw_v2 = r#"{"format":"ensub-browser-storage","schemaVersion":2,"revision":4,"words":{},"contexts":{},"reviewStates":{},"podcastContexts":{}}"#;
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v2.to_string());
+    let mut current = storage(backend);
+    assert_eq!(
+        current.initialize().expect("v2 storage must initialize"),
+        SnapshotMigrationStatus::Current
+    );
+    assert_eq!(current.backend().value("ensub.test"), Some(raw_v2));
+    assert_eq!(current.backend().value(V01_BACKUP_STORAGE_KEY), None);
+}
+
+#[test]
+fn identical_backup_allows_migration_retry_without_overwriting_backup() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    backend
+        .values
+        .insert(V01_BACKUP_STORAGE_KEY.to_string(), raw_v1.clone());
+    backend.fail_store_key = Some(V01_BACKUP_STORAGE_KEY.to_string());
+    let mut storage = storage(backend);
+
+    assert_eq!(
+        storage
+            .initialize()
+            .expect("identical backup must permit retry"),
+        SnapshotMigrationStatus::Migrated
+    );
+    assert_eq!(
+        storage.backend().value(V01_BACKUP_STORAGE_KEY),
+        Some(raw_v1.as_str())
+    );
+}
+
+#[test]
+fn conflicting_backup_aborts_and_latches_read_only_recovery() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    backend.values.insert(
+        V01_BACKUP_STORAGE_KEY.to_string(),
+        "different snapshot".to_string(),
+    );
+    let mut storage = storage(backend);
+
+    assert!(matches!(
+        storage.initialize(),
+        Err(SnapshotError::BackupConflict)
+    ));
+    assert!(storage.is_read_only());
+    assert_eq!(
+        storage.raw_snapshot().expect("raw export must load"),
+        Some(raw_v1)
+    );
+    assert!(matches!(
+        storage.save_capture(&capture("word-a", "alpha", timestamp(10))),
+        Err(SnapshotError::ReadOnly)
+    ));
+}
+
+#[test]
+fn corrupt_v1_aborts_read_only_without_creating_a_backup() {
+    let raw = r#"{"format":"ensub-browser-storage","schemaVersion":1}"#;
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw.to_string());
+    let mut storage = storage(backend);
+
+    assert!(matches!(
+        storage.initialize(),
+        Err(SnapshotError::CorruptSnapshot(_))
+    ));
+    assert!(storage.is_read_only());
+    assert_eq!(storage.backend().value(V01_BACKUP_STORAGE_KEY), None);
+    assert_eq!(
+        storage.raw_snapshot().expect("raw export must load"),
+        Some(raw.to_string())
+    );
+}
+
+#[test]
+fn migration_write_failures_preserve_recovery_data_and_latch_read_only() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backup_failure = MemoryBackend::default();
+    backup_failure
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    backup_failure.fail_store_key = Some(V01_BACKUP_STORAGE_KEY.to_string());
+    let mut backup_storage = storage(backup_failure);
+    assert!(matches!(
+        backup_storage.initialize(),
+        Err(SnapshotError::Backend { .. })
+    ));
+    assert!(backup_storage.is_read_only());
+    assert_eq!(
+        backup_storage.backend().value("ensub.test"),
+        Some(raw_v1.as_str())
+    );
+    assert_eq!(backup_storage.backend().value(V01_BACKUP_STORAGE_KEY), None);
+
+    let mut active_failure = MemoryBackend::default();
+    active_failure
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    active_failure.fail_store_key = Some("ensub.test".to_string());
+    let mut storage = storage(active_failure);
+    assert!(matches!(
+        storage.initialize(),
+        Err(SnapshotError::Backend { .. })
+    ));
+    assert!(storage.is_read_only());
+    assert_eq!(storage.backend().value("ensub.test"), Some(raw_v1.as_str()));
+    assert_eq!(
+        storage.backend().value(V01_BACKUP_STORAGE_KEY),
+        Some(raw_v1.as_str())
+    );
+}
+
+#[test]
+fn raw_export_falls_back_to_backup_and_healthy_reset_removes_both_keys() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backup_only = MemoryBackend::default();
+    backup_only
+        .values
+        .insert(V01_BACKUP_STORAGE_KEY.to_string(), raw_v1.clone());
+    let backup_storage = storage(backup_only);
+    assert_eq!(
+        backup_storage
+            .raw_snapshot()
+            .expect("backup export must load"),
+        Some(raw_v1.clone())
+    );
+
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    let mut storage = storage(backend);
+    storage.initialize().expect("migration must succeed");
+    storage.reset().expect("healthy reset must succeed");
+
+    assert_eq!(storage.backend().value("ensub.test"), None);
+    assert_eq!(storage.backend().value(V01_BACKUP_STORAGE_KEY), None);
 }
 
 #[test]
@@ -400,6 +579,27 @@ fn podcast_capture_is_atomic_idempotent_and_retains_multiple_encounters() {
     assert!(!second.word_created);
     assert!(second.podcast_context_created);
     assert_eq!(contexts.len(), 2);
+}
+
+#[test]
+fn malformed_podcast_capture_is_rejected_without_writing_or_panicking() {
+    let mut storage = storage(MemoryBackend::default());
+    let mut missing_context = podcast_capture("cue-1");
+    missing_context.capture.contexts.clear();
+
+    assert!(matches!(
+        storage.save_podcast_capture(&missing_context),
+        Err(SnapshotError::InvalidPodcastCapture)
+    ));
+    assert_eq!(storage.backend().value("ensub.test"), None);
+
+    let mut mismatched = podcast_capture("cue-1");
+    mismatched.capture.contexts[0].sentence = "Different sentence.".to_string();
+    assert!(matches!(
+        storage.save_podcast_capture(&mismatched),
+        Err(SnapshotError::InvalidPodcastCapture)
+    ));
+    assert_eq!(storage.backend().value("ensub.test"), None);
 }
 
 #[test]

@@ -99,6 +99,36 @@ fn a_sentence_start_more_than_sixty_words_away_forces_fallback() {
 }
 
 #[test]
+fn terminal_punctuation_after_the_sixtieth_following_word_is_included() {
+    let middle = std::iter::repeat_n("word", 59)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = format!("selected {middle} end.");
+    let document = document(&[&format!("{expected} Outside sentence.")]);
+
+    let context = reconstruct_transcript_context(&document, "cue-0", 0)
+        .expect("exact-limit sentence must resolve");
+
+    assert_eq!(context.quality, PodcastContextQuality::CompleteSentence);
+    assert_eq!(context.sentence, expected);
+}
+
+#[test]
+fn punctuation_before_the_sixtieth_preceding_word_is_included() {
+    let middle = std::iter::repeat_n("word", 59)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = format!("start {middle} selected.");
+    let document = document(&[&format!("Earlier. {expected}")]);
+
+    let context = reconstruct_transcript_context(&document, "cue-0", 61)
+        .expect("exact-limit sentence must resolve");
+
+    assert_eq!(context.quality, PodcastContextQuality::CompleteSentence);
+    assert_eq!(context.sentence, expected);
+}
+
+#[test]
 fn invalid_selection_returns_typed_errors() {
     let document = document(&["Known word."]);
 

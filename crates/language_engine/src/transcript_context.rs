@@ -124,12 +124,12 @@ pub fn reconstruct_transcript_context(
     let bounded_start = if first_token_index == 0 {
         0
     } else {
-        combined_tokens[first_token_index].start
+        combined_tokens[first_token_index - 1].end
     };
     let bounded_end = if token_end_index == combined_tokens.len() {
         text.len()
     } else {
-        combined_tokens[token_end_index - 1].end
+        combined_tokens[token_end_index].start
     };
     let bounded = text
         .get(bounded_start..bounded_end)
@@ -148,7 +148,10 @@ pub fn reconstruct_transcript_context(
         .find(|sentence| sentence.start <= selected_start && selected_start < sentence.end);
     let left_was_truncated = band_start > 0 || first_token_index > 0;
     let complete = sentence.is_some_and(|sentence| {
-        let has_left_boundary = sentence.start > 0 || !left_was_truncated;
+        let has_left_boundary = !left_was_truncated
+            || bounded
+                .get(..sentence.start)
+                .is_some_and(ends_with_terminal_punctuation);
         let has_terminal = bounded
             .get(sentence.start..sentence.end)
             .is_some_and(ends_with_terminal_punctuation);

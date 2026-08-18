@@ -14,9 +14,9 @@ use ensub_wasm::{
     EpisodeOpenDto, ParseInput, ParseOutput, PlayerWorkspaceDto, PodcastFeedParseOutputDto,
     PrepareDisambiguationInputDto, PreparePodcastCaptureInput, PreparedDisambiguationDto,
     PreparedPodcastCaptureDto, RateReviewInputDto, RevealReviewInputDto, ReviewAnswerDto,
-    ReviewTransitionDto, StatsInput, StatsOutput, TokenLookupDto, TranscriptDocumentDto,
-    TranscriptResourceDto, TranscriptSyncDto, ValidateDisambiguationResponseInputDto,
-    MAX_PLAYER_FIXTURE_BYTES,
+    ReviewTransitionDto, SnapshotMigrationStatus, StatsInput, StatsOutput, TokenLookupDto,
+    TranscriptDocumentDto, TranscriptResourceDto, TranscriptSyncDto,
+    ValidateDisambiguationResponseInputDto, MAX_PLAYER_FIXTURE_BYTES, V01_BACKUP_STORAGE_KEY,
 };
 
 #[wasm_bindgen_test]
@@ -411,6 +411,20 @@ fn v01_golden_snapshot_migrates_to_v2_in_firefox_after_committed_review() {
     let mut learning =
         EnsubPlayerLearning::new(Uint8Array::from(bytes.as_slice()), key.to_string(), false)
             .expect("v0.1 snapshot must open");
+    let status: SnapshotMigrationStatus = serde_wasm_bindgen::from_value(
+        learning
+            .initialize_storage()
+            .expect("v0.1 startup migration must succeed"),
+    )
+    .expect("migration status must decode");
+    assert_eq!(status, SnapshotMigrationStatus::Migrated);
+    assert_eq!(
+        storage
+            .get_item(V01_BACKUP_STORAGE_KEY)
+            .expect("backup must read")
+            .as_deref(),
+        Some(original)
+    );
     let due: DueReviewsDto = serde_wasm_bindgen::from_value(
         learning
             .due_reviews(
@@ -446,6 +460,9 @@ fn v01_golden_snapshot_migrates_to_v2_in_firefox_after_committed_review() {
     storage
         .remove_item(key)
         .expect("migration fixture must clean up");
+    storage
+        .remove_item(V01_BACKUP_STORAGE_KEY)
+        .expect("migration backup fixture must clean up");
 }
 
 wasm_bindgen_test_configure!(run_in_browser);

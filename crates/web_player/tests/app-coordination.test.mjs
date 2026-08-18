@@ -13,3 +13,9 @@ test("service worker registration does not depend on successful WASM boot", asyn
   expect(source.indexOf("navigator.serviceWorker.register")).toBeGreaterThan(-1);
   expect(source.indexOf("navigator.serviceWorker.register")).toBeLessThan(source.indexOf("await initializeWasm()"));
 });
+
+test("learning storage initializes before the player controller starts", async () => {
+  const source = await readFile(new URL("../js/app.js", import.meta.url), "utf8");
+  expect(source.indexOf("await learning.initialize()"))
+    .toBeLessThan(source.indexOf("createController({ coordinator, learning"));
+});

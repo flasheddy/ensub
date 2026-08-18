@@ -421,6 +421,8 @@ export function createController({
         dispatch({ type: "media/rate", rate: view.elements.audio.playbackRate });
         break;
       }
+      case "capture-lookup":
+        return captureLookup(command.selectedLemma);
       case "toggle-review":
         return state.review.phase === "closed" ? openReview() : closeReview();
       default:
@@ -470,7 +472,10 @@ export function createController({
     async start() {
       const workspace = coordinator.workspace.view();
       dispatch({ type: "feed/succeeded", generation: 0, workspace });
-      dispatch({ type: "capabilities/updated", capabilities: { storage: "ready", online: navigator.onLine } });
+      dispatch({
+        type: "capabilities/updated",
+        capabilities: { storage: learning.writable ? "ready" : "read_only", online: navigator.onLine },
+      });
       await refreshDueCount();
       const selected = workspace.selectedEpisodeId;
       if (selected) await selectEpisode(selected);

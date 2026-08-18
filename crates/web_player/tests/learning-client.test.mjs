@@ -35,3 +35,50 @@ test("review reads are unlocked while rating uses the shared exclusive lock", as
   ]);
   expect(calls).toContainEqual(["reset"]);
 });
+
+test("storage initialization uses the shared lock and exposes recovery export", async () => {
+  const calls = [];
+  class HealthyLearning {
+    initializeStorage() { calls.push(["initializeStorage"]); return "migrated"; }
+    isReadOnly() { return false; }
+    rawSnapshot() { return null; }
+  }
+  const locks = {
+    request(name, options, callback) {
+      calls.push(["lock", name, options]);
+      return callback();
+    },
+  };
+  const healthy = createLearningClient({
+    LearningClass: HealthyLearning,
+    lexiconBytes: new Uint8Array(),
+    locks,
+  });
+
+  await expect(healthy.initialize()).resolves.toEqual({ status: "migrated" });
+  expect(healthy.writable).toBe(true);
+  expect(calls).toEqual([
+    ["lock", LEARNING_LOCK_NAME, { mode: "exclusive" }],
+    ["initializeStorage"],
+  ]);
+
+  const exact = "{\n  \"schemaVersion\": 1\n}";
+  class RecoveryLearning {
+    initializeStorage() { throw new Error("migration failed"); }
+    isReadOnly() { return true; }
+    rawSnapshot() { return exact; }
+  }
+  const recovery = createLearningClient({
+    LearningClass: RecoveryLearning,
+    lexiconBytes: new Uint8Array(),
+    locks,
+  });
+
+  await expect(recovery.initialize()).resolves.toMatchObject({
+    status: "recovery_required",
+    message: "migration failed",
+  });
+  expect(recovery.writable).toBe(false);
+  expect(recovery.rawSnapshot()).toBe(exact);
+  expect(() => recovery.capturePodcast({})).toThrow("Learning storage is read-only");
+});

@@ -98,8 +98,9 @@ queries remain available but the sandbox opens read-only.
 The lexicon, WASM module, application shell, and service worker are bundled in
 one same-origin static distribution. Its build rejects high-confidence embedded
 credential literals. Once installed by the service worker, the complete local
-workflow can reload offline. Reset removes only this snapshot; corrupt or newer
-snapshots are preserved until an explicit reset.
+workflow can reload offline. A healthy reset removes the active snapshot and
+its v0.1 migration backup. A failed migration instead disables reset and other
+writes for that runtime so recovery bytes remain intact.
 
 ## Ensub Player Storage
 
@@ -123,9 +124,14 @@ contents to an Ensub service. The installed application shell, WASM module,
 icons, demo media, and versioned lexicon sidecars are available offline; remote
 audio and transcripts must already be cached or reachable.
 
-Learning snapshot v1 data migrates forward in memory. Ensub writes schema v2
-only after a complete successful mutation; corrupt, newer, or failed-migration
-snapshots remain unchanged so reset or future recovery remains possible.
+At startup, Ensub validates learning snapshot v1 data under the shared Web Lock,
+copies its exact bytes to `ensub_v0.1_backup`, and installs schema v2 with one
+revision increment. The backup is not overwritten: identical bytes allow a
+retry, while different bytes abort migration. Corrupt input and backup or
+active-snapshot write failures latch the current runtime read-only. The next
+launch retries from preserved storage; no durable failure marker is written.
+Both browser hosts expose a raw JSON download containing the exact active
+snapshot string, or the backup only when the active key is absent.
 
 In-player review reads due cards from the same learning snapshot. The prompt
 does not expose lemma or definition fields until the explicit Reveal action.
@@ -170,6 +176,10 @@ snapshot text and the opaque Player IndexedDB snapshot encoded as base64. The
 document is identified by `format: "ensub-local-export"` and `schemaVersion: 1`.
 It excludes provider configuration, credentials, consent records, audio, and
 unrelated origin data. v0.2.0 does not provide an import operation.
+
+When startup migration fails, the recovery alert provides a separate raw
+snapshot export. Capture, rating, and reset remain disabled in that runtime;
+offline lookup and any review data that can still be decoded remain readable.
 
 For a consistent native backup, either:
 

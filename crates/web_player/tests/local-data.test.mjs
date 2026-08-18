@@ -33,6 +33,7 @@ test("local export preserves exact learning text and Player bytes without provid
 test("reset clears only Player learning and provider state", async () => {
   const local = new MemoryStorage();
   local.setItem("ensub.sandbox.v1", "learning");
+  local.setItem("ensub_v0.1_backup", "legacy learning");
   local.setItem("unrelated", "preserved");
   const calls = [];
   const manager = createLocalDataManager({
@@ -45,5 +46,6 @@ test("reset clears only Player learning and provider state", async () => {
 
   expect(calls).toEqual(["player", "provider"]);
   expect(local.getItem("ensub.sandbox.v1")).toBeNull();
+  expect(local.getItem("ensub_v0.1_backup")).toBeNull();
   expect(local.getItem("unrelated")).toBe("preserved");
 });

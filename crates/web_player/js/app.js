@@ -4,6 +4,7 @@ import { createController } from "./controller.js";
 import { createLearningClient, LEARNING_STORAGE_KEY } from "./learning-client.js";
 import { createDisambiguationSettings } from "./disambiguation-settings.js";
 import { bindLocalDataControls, createLocalDataManager } from "./local-data.js";
+import { bindStorageRecovery } from "./storage-recovery.js";
 import { createView } from "./view.js";
 import { createWorkspace, EnsubPlayerLearning, initializeWasm } from "./wasm-client.js";
 
@@ -21,6 +22,8 @@ async function boot() {
       assetUrl: new URL("../assets/lexicon-v1.postcard.gz", import.meta.url),
     });
     const learning = createLearningClient({ LearningClass: EnsubPlayerLearning, lexiconBytes });
+    const storageInitialization = await learning.initialize();
+    bindStorageRecovery({ client: learning, initialization: storageInitialization });
     const coordinator = createWorkspaceCoordinator({ store, workspaceFactory: createWorkspace });
     await coordinator.open();
     const controller = createController({ coordinator, learning, view, disambiguationSettings });

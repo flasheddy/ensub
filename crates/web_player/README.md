@@ -76,6 +76,7 @@ has focus:
 | `K` / Up Arrow | Seek to the previous cue selected by Rust |
 | Left Arrow / Right Arrow | Skip backward or forward 5 seconds |
 | `[` / `]` | Step speed through 0.75x, 1x, 1.25x, 1.5x, 1.75x, and 2x |
+| `C` | Capture the open lookup from a token or non-editable lookup control |
 | `R` | Open or close Review |
 
 Native `Tab` and `Shift+Tab` order includes every transcript token. Press
@@ -83,7 +84,7 @@ Native `Tab` and `Shift+Tab` order includes every transcript token. Press
 ignored when a form field, select, ordinary button, link, or editable region
 has focus, when Alt/Ctrl/Meta/Shift is held, or while a non-review dialog is
 open. Only `R` remains active inside the Review dialog so it can close the
-session. Repeated `Space` and `R` keydown events are ignored.
+session. Repeated `Space`, `C`, and `R` keydown events are ignored.
 
 ## Review
 
@@ -125,9 +126,13 @@ revalidated, and streamed response limits are enforced. Servers must permit
 browser access; the player does not route requests through a proxy.
 
 Learning captures share the existing `ensub.sandbox.v1` localStorage snapshot
-with the Core harness and use the `ensub.sandbox.storage.v1` Web Lock. Snapshot
-schema v1 is migrated in memory and becomes v2 only after a successful write.
-The player cache remains a separate IndexedDB envelope.
+with the Core harness and use the `ensub.sandbox.storage.v1` Web Lock. Startup
+migration copies a valid schema-v1 snapshot exactly to `ensub_v0.1_backup`
+before installing schema v2. A corrupt snapshot, conflicting backup, or failed
+write leaves recovery data intact and latches learning writes read-only for the
+current runtime. The recovery alert downloads the exact active JSON string,
+falling back to the backup only when the active key is absent. The player cache
+remains a separate IndexedDB envelope.
 
 The **Local data** dialog remains available when normal Player boot fails. Its
 export contains the exact learning snapshot text and base64-encoded Player

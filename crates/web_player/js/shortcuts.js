@@ -10,6 +10,7 @@ const SHORTCUTS = new Map([
   ["ArrowRight", { type: "skip", seconds: 5 }],
   ["[", { type: "change-rate", direction: -1 }],
   ["]", { type: "change-rate", direction: 1 }],
+  ["c", { type: "capture-lookup" }],
   ["r", { type: "toggle-review" }],
 ]);
 
@@ -25,11 +26,24 @@ function isEditingOrCommandTarget(target) {
   ));
 }
 
-export function resolvePlayerShortcut(event, { openDialog = null } = {}) {
+function isLookupCaptureTarget(target) {
+  if (!target || typeof target.closest !== "function") return false;
+  if (target.closest(".transcript-token")) return true;
+  if (!target.closest("#lookup-inspector")) return false;
+  return !Boolean(target.isContentEditable || target.closest(
+    "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+  ));
+}
+
+export function resolvePlayerShortcut(event, { openDialog = null, canCaptureLookup = false } = {}) {
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
   const key = normalizedKey(event.key);
   const action = SHORTCUTS.get(key) ?? null;
   if (!action) return null;
+  if (action.type === "capture-lookup") {
+    if (!canCaptureLookup || event.repeat || openDialog) return null;
+    return isLookupCaptureTarget(event.target) ? action : null;
+  }
   if (event.repeat && ["toggle-playback", "toggle-review"].includes(action.type)) return null;
   if (openDialog) return openDialog === "review" && action.type === "toggle-review" ? action : null;
   return isEditingOrCommandTarget(event.target) ? null : action;

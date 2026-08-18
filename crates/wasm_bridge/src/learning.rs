@@ -15,7 +15,8 @@ use crate::{
     DueCountDto, DueCountInputDto, DueReviewsDto, DueReviewsInputDto,
     PrepareDisambiguationInputDto, PreparedDisambiguationDto, RateReviewInputDto,
     RevealReviewInputDto, ReviewAnswerDto, ReviewTransitionDto, SnapshotAccess, SnapshotBackend,
-    SnapshotError, SnapshotStorage, ValidateDisambiguationResponseInputDto,
+    SnapshotError, SnapshotMigrationStatus, SnapshotStorage,
+    ValidateDisambiguationResponseInputDto,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,6 +158,18 @@ impl<B: SnapshotBackend> PlayerLearning<B> {
                 entries: entries.into_iter().map(Into::into).collect(),
             },
         }
+    }
+
+    pub fn initialize_storage(&mut self) -> Result<SnapshotMigrationStatus, PlayerLearningError> {
+        self.storage.initialize().map_err(Into::into)
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.storage.is_read_only()
+    }
+
+    pub fn raw_snapshot(&self) -> Result<Option<String>, PlayerLearningError> {
+        self.storage.raw_snapshot().map_err(Into::into)
     }
 
     pub fn reset(&mut self) -> Result<(), PlayerLearningError> {

@@ -44,6 +44,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 input, select { border: 1px solid var(--player-border); border-radius: var(--player-radius); background: var(--player-bg); }
 .feed-input-row input { min-width: 0; height: 38px; padding: 0 10px; font-size: 13px; }
 .feed-status { min-height: 16px; margin: 7px 0 0; color: var(--player-warning); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.storage-recovery { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 20px; border-bottom: 1px solid #f9e2af66; background: #f9e2af14; color: var(--player-warning); font-size: 13px; }
+.storage-recovery[hidden] { display: none; }
+.storage-recovery p { margin: 2px 0 0; overflow-wrap: anywhere; }
 .icon-command, .secondary-command, .player-button { border: 1px solid var(--player-border); border-radius: var(--player-radius); background: var(--player-raised); }
 .icon-command { padding: 0 12px; font-size: 13px; font-weight: 700; }
 .library-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 8px; }

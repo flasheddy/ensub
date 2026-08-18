@@ -14,3 +14,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 [data-testid="review"] button { margin: .25rem; min-width: 2.25rem; }
 .danger { border-color: #c46b6b; }
 @media (max-width: 48rem) { main { grid-template-columns: 1fr; } footer { align-items: flex-start; flex-direction: column; } }
+.storage-recovery { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .75rem 1rem; border-bottom: 1px solid #d4a72c; background: #fff8c5; color: #5c3b00; }
+.storage-recovery[hidden] { display: none; }
+.storage-recovery p { margin: .15rem 0 0; overflow-wrap: anywhere; }

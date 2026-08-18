@@ -47,7 +47,8 @@ pub use review::{
     ReviewContextDto, ReviewPromptDto, ReviewTransitionDto,
 };
 pub use storage::{
-    SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage, SNAPSHOT_SCHEMA_VERSION,
+    SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotMigrationStatus, SnapshotStorage,
+    SNAPSHOT_SCHEMA_VERSION, V01_BACKUP_STORAGE_KEY,
 };
 
 #[cfg(target_arch = "wasm32")]

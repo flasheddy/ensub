@@ -17,7 +17,30 @@ export class SandboxClient {
   }
 
   get writable() {
-    return this.coordinator.writable;
+    return this.coordinator.writable && !(this.sandbox.isReadOnly?.() ?? false);
+  }
+
+  get recovery() {
+    return this.storageRecovery ?? null;
+  }
+
+  async initialize() {
+    try {
+      const status = this.coordinator.writable
+        ? await this.coordinator.run(() => this.sandbox.initializeStorage())
+        : this.sandbox.initializeStorage();
+      return { status };
+    } catch (error) {
+      this.storageRecovery = {
+        status: "recovery_required",
+        message: error?.message ?? "Browser storage migration failed.",
+      };
+      return this.storageRecovery;
+    }
+  }
+
+  rawSnapshot() {
+    return this.sandbox.rawSnapshot();
   }
 
   parse(input) {

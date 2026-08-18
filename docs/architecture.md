@@ -170,7 +170,9 @@ installed even while the runtime initializes.
 
 M5.4 adds `preparePodcastCapture` to that workspace and a separate
 `EnsubPlayerLearning` facade. Rust revalidates the workspace revision, episode,
-transcript, cue, and token; reconstructs bounded cross-cue sentence context;
+transcript, cue, and token; reconstructs sentence context across at most three
+adjacent cues and 60 lexical tokens in either direction (falling back to the
+bounded cue window when no complete boundary is found);
 performs the offline lexicon lookup; and constructs the provenance and logical
 audio slice. JavaScript only maps Rust UTF-16 spans into DOM nodes, supplies
 host media times, renders states, and coordinates explicit capture effects.
@@ -232,10 +234,14 @@ snapshot. On `wasm32`, `LocalStorageBackend` persists it under
 timestamps and takes a short-lived exclusive Web Lock around each mutation.
 Browsers without Web Locks open the WASM adapter read-only.
 
-Schema v2 adds `podcastContexts`, keyed by the generic context ID. A v1 snapshot
-is decoded and validated in memory without rewriting it; the first successful
-mutation writes one complete v2 snapshot. Failed serialization or storage
-writes leave the original bytes intact. `PodcastStorageAdapter` atomically
+Schema v2 adds `podcastContexts`, keyed by the generic context ID. At startup,
+under the existing exclusive learning-storage lock, a valid v1 snapshot is
+copied byte-for-byte to the immutable `ensub_v0.1_backup` key before one
+complete v2 snapshot is installed with an incremented revision. An identical
+backup permits a safe retry; a conflicting backup, corrupt input, or failed
+write aborts migration and latches that runtime read-only. The host then offers
+an exact raw JSON export while lookup and readable queries remain available.
+`PodcastStorageAdapter` atomically
 stores the word, generic sentence, structured media context, and initial SM-2
 state. Word identity is deterministic by normalized lemma, while encounter
 identity includes episode, transcript, cue, and token span.

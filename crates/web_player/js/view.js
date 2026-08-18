@@ -128,10 +128,14 @@ export function createView() {
     const activeDialog = visibleDialogs.find((dialog) => dialog !== elements.reviewDialog) ?? visibleDialogs[0];
     const command = resolvePlayerShortcut(event, {
       openDialog: activeDialog ? (activeDialog === elements.reviewDialog ? "review" : "other") : null,
+      canCaptureLookup: !elements.capture.hidden && !elements.capture.disabled,
     });
     if (command) {
       event.preventDefault();
-      Promise.resolve(handlers.handleShortcut(command)).catch(() => {});
+      const resolvedCommand = command.type === "capture-lookup"
+        ? { ...command, selectedLemma: elements.lookupChoice.value }
+        : command;
+      Promise.resolve(handlers.handleShortcut(resolvedCommand)).catch(() => {});
     }
   });
   elements.transcript.addEventListener("click", (event) => {
@@ -251,7 +255,7 @@ export function createView() {
     return list;
   }
 
-  function renderLookup(lookup) {
+  function renderLookup(lookup, storageWritable) {
     const open = lookup.status !== "closed";
     if (open && !lookupWasOpen) lookupReturnFocus = document.activeElement;
     elements.inspector.hidden = !open;
@@ -289,7 +293,7 @@ export function createView() {
     elements.lookupChoice.hidden = true;
     elements.lookupChoiceLabel.hidden = true;
     elements.capture.hidden = true;
-    elements.capture.disabled = false;
+    elements.capture.disabled = !storageWritable;
     elements.disambiguationActions.hidden = true;
     elements.disambiguationResult.hidden = true;
     elements.providerSettingsMessage.textContent = lookup.ai.status === "settings" ? lookup.ai.message : "";
@@ -332,7 +336,7 @@ export function createView() {
     }
   }
 
-  function renderReview(review) {
+  function renderReview(review, storageWritable) {
     const open = review.phase !== "closed";
     elements.reviewDialog.hidden = !open;
     elements.reviewDueCount.textContent = String(review.dueCount);
@@ -379,7 +383,9 @@ export function createView() {
     elements.reviewReveal.textContent = review.phase === "revealing" ? "Revealing…" : "Reveal answer";
     elements.reviewAnswer.hidden = !revealed;
     elements.reviewRatings.hidden = !revealed || review.phase === "rated";
-    elements.reviewRatings.querySelectorAll("button").forEach((button) => { button.disabled = review.saving; });
+    elements.reviewRatings.querySelectorAll("button").forEach((button) => {
+      button.disabled = review.saving || !storageWritable;
+    });
     elements.reviewNext.hidden = review.phase !== "rated";
     if (revealed) {
       elements.reviewLemma.textContent = review.answer.lemma || review.answer.term;
@@ -456,8 +462,9 @@ export function createView() {
       elements.volume.value = String(state.media.volume);
       elements.speed.value = String(state.media.rate);
       elements.network.textContent = state.capabilities.online ? "Local workspace" : "Offline · cached content only";
-      renderLookup(state.lookup);
-      renderReview(state.review);
+      const storageWritable = state.capabilities.storage === "ready";
+      renderLookup(state.lookup, storageWritable);
+      renderReview(state.review, storageWritable);
     },
     updateSync(sync, follow, forceScroll = false) {
       const nextActive = new Set(sync.activeCueIndices);

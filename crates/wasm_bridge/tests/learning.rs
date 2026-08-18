@@ -11,7 +11,7 @@ use core_engine::{
 use ensub_wasm::{
     CapturePodcastInput, CapturePodcastStatus, DueCountInputDto, DueReviewsInputDto,
     PlayerLearning, PlayerLearningError, PrepareDisambiguationInputDto, RateReviewInputDto,
-    RevealReviewInputDto, SnapshotAccess, SnapshotBackend, TokenLookupDto,
+    RevealReviewInputDto, SnapshotAccess, SnapshotBackend, SnapshotMigrationStatus, TokenLookupDto,
     ValidateDisambiguationResponseInputDto,
 };
 use language_engine::{
@@ -170,6 +170,35 @@ fn offline_lookup_distinguishes_found_and_unknown_without_writing() {
 }
 
 #[test]
+fn learning_facade_initializes_and_exports_exact_recovery_snapshot() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let backend = MemoryBackend::with_snapshot("ensub.test", raw_v1.clone());
+    let mut learning =
+        PlayerLearning::open(backend, "ensub.test", SnapshotAccess::ReadWrite, &lexicon())
+            .expect("learning runtime must open");
+
+    assert_eq!(
+        learning
+            .initialize_storage()
+            .expect("storage migration must succeed"),
+        SnapshotMigrationStatus::Migrated
+    );
+    assert!(!learning.is_read_only());
+
+    let corrupt = "{not-json".to_string();
+    let backend = MemoryBackend::with_snapshot("ensub.test", corrupt.clone());
+    let mut recovery =
+        PlayerLearning::open(backend, "ensub.test", SnapshotAccess::ReadWrite, &lexicon())
+            .expect("learning runtime must open");
+    assert!(recovery.initialize_storage().is_err());
+    assert!(recovery.is_read_only());
+    assert_eq!(
+        recovery.raw_snapshot().expect("raw snapshot must load"),
+        Some(corrupt)
+    );
+}
+
+#[test]
 fn explicit_capture_reports_created_then_already_captured() {
     let mut learning = PlayerLearning::open(
         MemoryBackend::default(),
@@ -198,6 +227,63 @@ fn explicit_capture_reports_created_then_already_captured() {
     assert_eq!(retry.status, CapturePodcastStatus::AlreadyCaptured);
     assert_eq!(first.word_id, retry.word_id);
     assert_eq!(first.context_id, retry.context_id);
+}
+
+#[test]
+fn duplicate_lemma_across_episodes_retains_both_media_contexts() {
+    let captured_at_ms = 1_776_499_200_000;
+    let mut learning = PlayerLearning::open(
+        MemoryBackend::default(),
+        "ensub.test",
+        SnapshotAccess::ReadWrite,
+        &lexicon(),
+    )
+    .expect("learning runtime must open");
+    let first = learning
+        .capture_podcast(CapturePodcastInput {
+            draft: draft(),
+            selected_lemma: None,
+            captured_at_ms,
+        })
+        .expect("first episode capture must save");
+    let mut second_draft = draft();
+    second_draft.episode.internal_id = "episode-2".to_string();
+    second_draft.episode.title = "Second Episode".to_string();
+    second_draft.episode.enclosure_url = "https://example.test/second.mp3".to_string();
+    second_draft.audio_slice = calculate_padded_audio_slice(
+        second_draft.episode.enclosure_url.clone(),
+        &second_draft.cue_range,
+        None,
+    )
+    .expect("second episode slice must be valid");
+    let second = learning
+        .capture_podcast(CapturePodcastInput {
+            draft: second_draft,
+            selected_lemma: None,
+            captured_at_ms: captured_at_ms + 60_000,
+        })
+        .expect("second episode capture must save");
+
+    let card = learning
+        .due_reviews(DueReviewsInputDto {
+            as_of_ms: captured_at_ms + 60_000,
+            limit: 50,
+        })
+        .expect("review card must load")
+        .cards
+        .remove(0);
+    let episode_titles = card
+        .contexts
+        .iter()
+        .filter_map(|context| context.episode_title.as_deref())
+        .collect::<Vec<_>>();
+
+    assert_eq!(first.status, CapturePodcastStatus::CreatedCard);
+    assert_eq!(second.status, CapturePodcastStatus::AddedEncounter);
+    assert_eq!(first.word_id, second.word_id);
+    assert_ne!(first.context_id, second.context_id);
+    assert_eq!(episode_titles, vec!["Second Episode", "Episode"]);
+    assert_eq!(card.contexts.len(), 2);
 }
 
 #[test]

@@ -47,6 +47,21 @@ impl EnsubPlayerLearning {
         Ok(Self { inner })
     }
 
+    #[wasm_bindgen(js_name = initializeStorage)]
+    pub fn initialize_storage(&mut self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.initialize_storage().map_err(learning_error)?)
+    }
+
+    #[wasm_bindgen(js_name = isReadOnly)]
+    pub fn is_read_only(&self) -> bool {
+        self.inner.is_read_only()
+    }
+
+    #[wasm_bindgen(js_name = rawSnapshot)]
+    pub fn raw_snapshot(&self) -> Result<Option<String>, JsValue> {
+        self.inner.raw_snapshot().map_err(learning_error)
+    }
+
     #[wasm_bindgen(js_name = lookupToken)]
     pub fn lookup_token(&self, surface: String) -> Result<JsValue, JsValue> {
         to_js(&self.inner.lookup_token(&surface))
@@ -130,6 +145,21 @@ impl EnsubSandbox {
         let inner = Sandbox::open(backend, storage_key, access, &lexicon_bytes.to_vec())
             .map_err(sandbox_error)?;
         Ok(Self { inner })
+    }
+
+    #[wasm_bindgen(js_name = initializeStorage)]
+    pub fn initialize_storage(&mut self) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.initialize_storage().map_err(sandbox_error)?)
+    }
+
+    #[wasm_bindgen(js_name = isReadOnly)]
+    pub fn is_read_only(&self) -> bool {
+        self.inner.is_read_only()
+    }
+
+    #[wasm_bindgen(js_name = rawSnapshot)]
+    pub fn raw_snapshot(&self) -> Result<Option<String>, JsValue> {
+        self.inner.raw_snapshot().map_err(sandbox_error)
     }
 
     pub fn parse(&self, input: JsValue) -> Result<JsValue, JsValue> {
@@ -348,6 +378,7 @@ fn sandbox_error(error: SandboxError) -> JsValue {
         SandboxError::Serialization(_) => "serialization_failed",
         SandboxError::Lexicon(_) => "lexicon_invalid",
         SandboxError::Storage(SnapshotError::ReadOnly) => "storage_read_only",
+        SandboxError::Storage(SnapshotError::BackupConflict) => "storage_backup_conflict",
         SandboxError::Storage(SnapshotError::CorruptSnapshot(_)) => "storage_corrupt",
         SandboxError::Storage(SnapshotError::UnsupportedSchema { .. }) => "unsupported_schema",
         SandboxError::Storage(SnapshotError::Backend { .. }) => "storage_unavailable",
@@ -372,6 +403,7 @@ fn learning_error(error: PlayerLearningError) -> JsValue {
         PlayerLearningError::ReviewToken(_) => "serialization_failed",
         PlayerLearningError::Disambiguation(error) => error.code(),
         PlayerLearningError::Storage(SnapshotError::ReadOnly) => "storage_read_only",
+        PlayerLearningError::Storage(SnapshotError::BackupConflict) => "storage_backup_conflict",
         PlayerLearningError::Storage(SnapshotError::CorruptSnapshot(_)) => "storage_corrupt",
         PlayerLearningError::Storage(SnapshotError::UnsupportedSchema { .. }) => {
             "unsupported_schema"

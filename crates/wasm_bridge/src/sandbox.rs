@@ -11,7 +11,9 @@ use thiserror::Error;
 
 use crate::review::review_token;
 use crate::text::utf16_offset as utf16_offset_raw;
-use crate::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
+use crate::{
+    SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotMigrationStatus, SnapshotStorage,
+};
 
 const DEFAULT_MAX_CANDIDATES: usize = 100;
 
@@ -47,6 +49,18 @@ impl<B: SnapshotBackend> Sandbox<B> {
             filtered_stopwords: report.filtered_stopwords,
             truncated_candidates: report.truncated_candidates,
         })
+    }
+
+    pub fn initialize_storage(&mut self) -> Result<SnapshotMigrationStatus, SandboxError> {
+        self.storage.initialize().map_err(Into::into)
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.storage.is_read_only()
+    }
+
+    pub fn raw_snapshot(&self) -> Result<Option<String>, SandboxError> {
+        self.storage.raw_snapshot().map_err(Into::into)
     }
 
     pub fn capture_parsed(

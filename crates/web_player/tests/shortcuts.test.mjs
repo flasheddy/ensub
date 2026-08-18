@@ -9,6 +9,9 @@ function target(kind = "workspace") {
       if (kind === "input" && selector.includes("input")) return this;
       if (kind === "select" && selector.includes("select")) return this;
       if (kind === "button" && selector.includes("button")) return this;
+      if (kind === "lookup-button" && selector.includes("#lookup-inspector")) return this;
+      if (kind === "lookup-button" && selector.includes("button")) return this;
+      if (kind === "lookup-static" && selector.includes("#lookup-inspector")) return this;
       if (kind === "contenteditable" && selector.includes("[contenteditable")) return this;
       return null;
     },
@@ -52,6 +55,28 @@ describe("global player shortcuts", () => {
     expect(resolvePlayerShortcut(key("j", { shiftKey: true }))).toBeNull();
     expect(resolvePlayerShortcut(key("Enter", { target: target("token") }))).toBeNull();
     expect(resolvePlayerShortcut(key("Tab", { target: target("token") }))).toBeNull();
+  });
+
+  test("C confirms only a capturable lookup from an allowed focus target", () => {
+    const options = { canCaptureLookup: true };
+    expect(resolvePlayerShortcut(key("c", { target: target("token") }), options))
+      .toEqual({ type: "capture-lookup" });
+    expect(resolvePlayerShortcut(key("C", { target: target("lookup-button") }), options))
+      .toEqual({ type: "capture-lookup" });
+    expect(resolvePlayerShortcut(key("c", { target: target("lookup-static") }), options))
+      .toEqual({ type: "capture-lookup" });
+
+    expect(resolvePlayerShortcut(key("c", { target: target("workspace") }), options)).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("input") }), options)).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("select") }), options)).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("contenteditable") }), options)).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("token"), repeat: true }), options)).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("token"), ctrlKey: true }), options)).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("token") }))).toBeNull();
+    expect(resolvePlayerShortcut(key("c", { target: target("token") }), {
+      canCaptureLookup: true,
+      openDialog: "other",
+    })).toBeNull();
   });
 
   test("only R escapes the review dialog and no shortcut escapes another dialog", () => {

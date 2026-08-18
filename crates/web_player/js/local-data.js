@@ -1,4 +1,4 @@
-import { LEARNING_STORAGE_KEY } from "./learning-client.js";
+import { LEARNING_STORAGE_KEY, V01_BACKUP_STORAGE_KEY } from "./learning-client.js";
 
 export const LOCAL_EXPORT_FORMAT = "ensub-local-export";
 
@@ -25,6 +25,7 @@ export function createLocalDataManager({ store, local = globalThis.localStorage,
     async reset() {
       await store.clear();
       local.removeItem(LEARNING_STORAGE_KEY);
+      local.removeItem(V01_BACKUP_STORAGE_KEY);
       settings.clear();
     },
   };

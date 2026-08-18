@@ -149,12 +149,14 @@ The browser suite covers direct zero-feed workspace rendering, demo and real
 cross-origin CORS feed import, truthful no-CORS failure rendering, DOM audio
 controls, direct `timeupdate`/`seeked` synchronization through Rust, overlap
 highlighting, manual-follow suspension and resumption, cue seeking, global
-player shortcuts and their input/dialog guards, native token focus and Enter
-lookup, explicit and repeated media capture, persistence, offline reload, focus
+player shortcuts and their input/dialog guards, native token focus, Enter
+lookup, guarded `C` capture, explicit and repeated media capture, persistence,
+offline reload, focus
 restoration, zero implicit provider calls, and 375px-through-desktop layout.
 WASM storage tests use a committed synthetic v0.1 golden snapshot and cover
-v1-to-v2 migration, exact-byte recovery after failed writes, unknown lookup,
-and multi-context lemma association. Rust fixture and workspace tests cover
+startup v1-to-v2 migration, immutable exact-byte backup and retry/conflict
+handling, read-only recovery after failed writes, raw export, unknown lookup,
+and cross-episode multi-context lemma association. Rust fixture and workspace tests cover
 strict schema validation, atomic import, and next/previous cue semantics across
 overlaps, gaps, and transcript boundaries.
 

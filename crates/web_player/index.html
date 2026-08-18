@@ -13,6 +13,14 @@
 </head>
 <body>
   <div class="app-shell">
+    <section id="storage-recovery" class="storage-recovery" role="alert" hidden>
+      <div>
+        <strong>Learning storage is read-only</strong>
+        <p id="storage-recovery-message"></p>
+        <p id="storage-recovery-status" role="status"></p>
+      </div>
+      <button id="storage-recovery-export" class="secondary-command" type="button">Export raw snapshot</button>
+    </section>
     <header class="topbar">
       <a class="brand" href="./" aria-label="Ensub Player home"><span class="brand-mark">E</span><span>Ensub Player</span></a>
       <div class="topbar-actions">

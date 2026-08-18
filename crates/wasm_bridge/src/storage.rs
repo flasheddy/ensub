@@ -16,11 +16,20 @@ use wasm_bindgen::JsCast;
 
 const SNAPSHOT_FORMAT: &str = "ensub-browser-storage";
 pub const SNAPSHOT_SCHEMA_VERSION: u16 = 2;
+pub const V01_BACKUP_STORAGE_KEY: &str = "ensub_v0.1_backup";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotAccess {
     ReadOnly,
     ReadWrite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotMigrationStatus {
+    Empty,
+    Current,
+    Migrated,
 }
 
 pub trait SnapshotBackend {
@@ -102,6 +111,7 @@ pub struct SnapshotStorage<B> {
     backend: B,
     key: String,
     access: SnapshotAccess,
+    initialized: bool,
 }
 
 impl<B> SnapshotStorage<B> {
@@ -110,6 +120,7 @@ impl<B> SnapshotStorage<B> {
             backend,
             key: key.into(),
             access,
+            initialized: false,
         }
     }
 
@@ -127,11 +138,100 @@ impl<B> SnapshotStorage<B> {
 }
 
 impl<B: SnapshotBackend> SnapshotStorage<B> {
+    pub fn initialize(&mut self) -> Result<SnapshotMigrationStatus, SnapshotError> {
+        if self.initialized {
+            return Ok(SnapshotMigrationStatus::Current);
+        }
+        let result = self.initialize_inner();
+        if result.is_err() {
+            self.access = SnapshotAccess::ReadOnly;
+        }
+        result
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.access == SnapshotAccess::ReadOnly
+    }
+
+    pub fn raw_snapshot(&self) -> Result<Option<String>, SnapshotError> {
+        if let Some(raw) = self
+            .backend
+            .load(&self.key)
+            .map_err(|error| SnapshotError::backend("load", error))?
+        {
+            return Ok(Some(raw));
+        }
+        self.backend
+            .load(V01_BACKUP_STORAGE_KEY)
+            .map_err(|error| SnapshotError::backend("load backup", error))
+    }
+
+    fn initialize_inner(&mut self) -> Result<SnapshotMigrationStatus, SnapshotError> {
+        let Some(raw) = self
+            .backend
+            .load(&self.key)
+            .map_err(|error| SnapshotError::backend("load", error))?
+        else {
+            self.initialized = true;
+            return Ok(SnapshotMigrationStatus::Empty);
+        };
+        let header: SnapshotHeader = serde_json::from_str(&raw)
+            .map_err(|error| SnapshotError::CorruptSnapshot(error.to_string()))?;
+        if header.format != SNAPSHOT_FORMAT {
+            return Err(SnapshotError::CorruptSnapshot(
+                "snapshot format identifier is invalid".to_string(),
+            ));
+        }
+        match header.schema_version {
+            1 => {
+                self.ensure_writable()?;
+                let legacy = serde_json::from_str::<SnapshotV1>(&raw)
+                    .map_err(|error| SnapshotError::CorruptSnapshot(error.to_string()))?;
+                let mut migrated = SnapshotV2::from(legacy);
+                validate_snapshot(&migrated)?;
+                migrated.revision = migrated.revision.saturating_add(1);
+                let encoded = serde_json::to_string(&migrated)
+                    .map_err(|error| SnapshotError::Serialization(error.to_string()))?;
+                match self
+                    .backend
+                    .load(V01_BACKUP_STORAGE_KEY)
+                    .map_err(|error| SnapshotError::backend("load backup", error))?
+                {
+                    Some(backup) if backup != raw => return Err(SnapshotError::BackupConflict),
+                    Some(_) => {}
+                    None => self
+                        .backend
+                        .store(V01_BACKUP_STORAGE_KEY, &raw)
+                        .map_err(|error| SnapshotError::backend("store backup", error))?,
+                }
+                self.backend
+                    .store(&self.key, &encoded)
+                    .map_err(|error| SnapshotError::backend("store migrated snapshot", error))?;
+                self.initialized = true;
+                Ok(SnapshotMigrationStatus::Migrated)
+            }
+            SNAPSHOT_SCHEMA_VERSION => {
+                let snapshot = serde_json::from_str::<SnapshotV2>(&raw)
+                    .map_err(|error| SnapshotError::CorruptSnapshot(error.to_string()))?;
+                validate_snapshot(&snapshot)?;
+                self.initialized = true;
+                Ok(SnapshotMigrationStatus::Current)
+            }
+            actual => Err(SnapshotError::UnsupportedSchema {
+                expected: SNAPSHOT_SCHEMA_VERSION,
+                actual,
+            }),
+        }
+    }
+
     pub fn reset(&mut self) -> Result<(), SnapshotError> {
-        self.ensure_writable()?;
+        self.ensure_ready_for_write()?;
         self.backend
             .remove(&self.key)
-            .map_err(|error| SnapshotError::backend("remove", error))
+            .map_err(|error| SnapshotError::backend("remove", error))?;
+        self.backend
+            .remove(V01_BACKUP_STORAGE_KEY)
+            .map_err(|error| SnapshotError::backend("remove backup", error))
     }
 
     pub fn next_review_at_after(
@@ -153,6 +253,14 @@ impl<B: SnapshotBackend> SnapshotStorage<B> {
         } else {
             Ok(())
         }
+    }
+
+    fn ensure_ready_for_write(&mut self) -> Result<(), SnapshotError> {
+        self.ensure_writable()?;
+        if !self.initialized {
+            self.initialize()?;
+        }
+        self.ensure_writable()
     }
 
     fn load_snapshot(&self) -> Result<SnapshotV2, SnapshotError> {
@@ -202,7 +310,7 @@ impl<B: SnapshotBackend> SnapshotStorage<B> {
         &mut self,
         operation: impl FnOnce(&mut SnapshotV2) -> Result<T, SnapshotError>,
     ) -> Result<T, SnapshotError> {
-        self.ensure_writable()?;
+        self.ensure_ready_for_write()?;
         let mut snapshot = self.load_snapshot()?;
         let result = operation(&mut snapshot)?;
         self.store_snapshot(snapshot)?;
@@ -304,7 +412,7 @@ impl<B: SnapshotBackend> StorageAdapter for SnapshotStorage<B> {
         expected: &ReviewState,
         replacement: &ReviewState,
     ) -> Result<ReviewUpdate, Self::Error> {
-        self.ensure_writable()?;
+        self.ensure_ready_for_write()?;
         if expected.word_id != replacement.word_id {
             return Err(SnapshotError::InvalidReviewReplacement);
         }
@@ -400,7 +508,7 @@ impl<B: SnapshotBackend> PodcastStorageAdapter for SnapshotStorage<B> {
         &mut self,
         capture: &PodcastCapture,
     ) -> Result<PodcastCaptureResult, Self::Error> {
-        validate_capture(&capture.capture)?;
+        let generic_context = validate_podcast_capture(capture)?;
         let context_id = capture.podcast_context.context_id.as_str().to_string();
         self.mutate(|snapshot| {
             ensure_lemma_available(
@@ -429,8 +537,7 @@ impl<B: SnapshotBackend> PodcastStorageAdapter for SnapshotStorage<B> {
                 }
             }
             if let Some(existing) = snapshot.contexts.get(&context_id) {
-                let expected = &capture.capture.contexts[0];
-                let mut comparable = StoredContextV1::from(expected);
+                let mut comparable = StoredContextV1::from(generic_context);
                 comparable.captured_at = existing.captured_at;
                 if existing != &comparable {
                     return Err(SnapshotError::PodcastContextConflict(context_id));
@@ -454,10 +561,9 @@ impl<B: SnapshotBackend> PodcastStorageAdapter for SnapshotStorage<B> {
             };
             let context_created = !snapshot.contexts.contains_key(&context_id);
             if context_created {
-                snapshot.contexts.insert(
-                    context_id.clone(),
-                    StoredContextV1::from(&capture.capture.contexts[0]),
-                );
+                snapshot
+                    .contexts
+                    .insert(context_id.clone(), StoredContextV1::from(generic_context));
             }
             let podcast_context_created = !snapshot.podcast_contexts.contains_key(&context_id);
             if podcast_context_created {
@@ -590,6 +696,9 @@ pub enum SnapshotError {
         operation: &'static str,
         message: String,
     },
+
+    #[error("the existing v0.1 backup does not match the active snapshot")]
+    BackupConflict,
 
     #[error("browser snapshot is corrupt: {0}")]
     CorruptSnapshot(String),
@@ -823,6 +932,16 @@ fn validate_capture(capture: &Capture) -> Result<(), SnapshotError> {
         return Err(SnapshotError::InvalidCapture);
     }
     validate_review_state(&capture.initial_review_state)
+}
+
+fn validate_podcast_capture(capture: &PodcastCapture) -> Result<&ContextRecord, SnapshotError> {
+    PodcastCapture::try_new(capture.capture.clone(), capture.podcast_context.clone())
+        .map_err(|_| SnapshotError::InvalidPodcastCapture)?;
+    capture
+        .capture
+        .contexts
+        .first()
+        .ok_or(SnapshotError::InvalidPodcastCapture)
 }
 
 fn validate_review_state(state: &ReviewState) -> Result<(), SnapshotError> {

@@ -4,6 +4,7 @@ import { loadLexicon } from "./assets.js";
 import { createWriterCoordinator } from "./coordinator.js";
 import { createController } from "./controller.js";
 import { SandboxClient } from "./sandbox-client.js";
+import { bindStorageRecovery } from "./storage-recovery.js";
 import { createView } from "./view.js";
 
 const STORAGE_KEY = "ensub.sandbox.v1";
@@ -22,6 +23,8 @@ async function start() {
     storageKey: STORAGE_KEY,
     coordinator,
   });
+  const storageInitialization = await client.initialize();
+  bindStorageRecovery({ client, initialization: storageInitialization });
   const controller = createController({ client, view });
   addEventListener("storage", (event) => {
     if (event.key === STORAGE_KEY) controller.refresh().catch(view.report);

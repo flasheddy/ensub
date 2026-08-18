@@ -27,7 +27,7 @@ test("token lookup is offline, keyboard reachable, and capture is idempotent", a
   await expect(page.locator("#lookup-surface")).toHaveText("listening");
   await expect(page.locator(".lookup-definitions li").first()).toBeVisible();
 
-  await page.getByRole("complementary", { name: "Word lookup" }).getByRole("button", { name: "Capture", exact: true }).click();
+  await token.press("c");
   await expect(page.locator("#lookup-body")).toContainText("Saved as a new learning card");
   await page.getByRole("button", { name: "Close lookup" }).click();
 

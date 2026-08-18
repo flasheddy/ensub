@@ -230,7 +230,9 @@ the same scheduling policy as native surfaces.
 The snapshot stays under `ensub.sandbox.v1` in browser `localStorage`. Each
 write takes a short Web Lock so multiple tabs cannot silently overwrite each
 other. Tabs without Web Locks remain useful for parsing and queries but disable
-writes. The reset control deletes only the Core snapshot.
+writes. A healthy reset deletes the Core snapshot and any v0.1 migration
+backup. If startup migration fails, use **Export raw snapshot** in the recovery
+alert; capture, rating, and reset stay disabled for that runtime.
 
 No account or network service is used. After the service worker has installed,
 the complete harness can reload offline.
@@ -271,13 +273,16 @@ focused:
 | `K` / Up Arrow | Go to the previous cue |
 | Left Arrow / Right Arrow | Skip backward or forward 5 seconds |
 | `[` / `]` | Decrease or increase playback speed |
+| `C` | Capture the open, capturable lookup |
 | `R` | Open or close Review |
 
 Speed steps are 0.75x, 1x, 1.25x, 1.5x, 1.75x, and 2x. Shortcuts are ignored
 while a form input, select, ordinary button, link, or editable region has focus,
 when a modifier key is held, and while a non-review dialog is open. In Review,
 only `R` remains available as a global command. Holding `Space` or `R` does not
-repeatedly toggle its action.
+repeatedly toggle its action. `C` is narrower: it works only once per key press
+when Capture is available and focus is on a transcript token or a non-editable
+lookup control.
 
 ### Transcript Lookup And Capture
 
@@ -289,7 +294,11 @@ lemma from the displayed list.
 
 Opening the panel is read-only. Choose **Capture** to save the lemma, ranked
 definitions, reconstructed sentence, podcast provenance, and logical padded
-audio range as one local operation. Repeating the same cue/token encounter does
+audio range as one local operation. Sentence reconstruction searches at most
+three adjacent cues and 60 lexical tokens in either direction; without terminal
+punctuation inside those limits it saves the complete bounded cue window as
+fallback context. Press `C` from an allowed lookup focus target for the same
+confirmation. Repeating the same cue/token encounter does
 not create another learning card. A different cue or episode attaches another
 encounter to the same lemma and preserves its existing review schedule.
 
@@ -312,6 +321,11 @@ snapshot and Player cache. Provider credentials are excluded. The confirmed
 reset removes only Player cache, learning data, and Ensub provider settings,
 credentials, and consent; it preserves unrelated site data and installed
 offline shell/lexicon assets. v0.2.0 does not import exported documents.
+
+Learning snapshot v1 migration runs during startup under the learning-storage
+Web Lock. Ensub first preserves the exact source at `ensub_v0.1_backup`. If
+migration cannot finish, a recovery alert marks learning storage read-only and
+offers an exact raw JSON export; playback and offline lookup remain available.
 
 Contextual provider requests occur only after **Explain in context**. The
 consent dialog previews the selected word, saved sentence, candidate local
