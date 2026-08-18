@@ -79,11 +79,27 @@ describe("global player shortcuts", () => {
     })).toBeNull();
   });
 
-  test("only R escapes the review dialog and no shortcut escapes another dialog", () => {
+  test("maps the review keyboard workflow while keeping other dialogs isolated", () => {
+    const review = { openDialog: "review" };
     expect(resolvePlayerShortcut(key("r", { target: target("button") }), { openDialog: "review" }))
       .toEqual({ type: "toggle-review" });
-    expect(resolvePlayerShortcut(key(" "), { openDialog: "review" })).toBeNull();
+    expect(resolvePlayerShortcut(key(" "), review)).toEqual({ type: "review-replay" });
+    expect(resolvePlayerShortcut(key("p"), review)).toEqual({ type: "review-replay" });
+    expect(resolvePlayerShortcut(key("P"), review)).toEqual({ type: "review-replay" });
+    expect(resolvePlayerShortcut(key("Enter"), review)).toEqual({ type: "review-reveal" });
+    for (let rating = 0; rating <= 5; rating += 1) {
+      expect(resolvePlayerShortcut(key(String(rating)), review))
+        .toEqual({ type: "review-rate", rating });
+    }
+
+    expect(resolvePlayerShortcut(key(" ", { target: target("button") }), review)).toBeNull();
+    expect(resolvePlayerShortcut(key("Enter", { target: target("button") }), review)).toBeNull();
+    expect(resolvePlayerShortcut(key("p", { target: target("select") }), review)).toBeNull();
+    expect(resolvePlayerShortcut(key("4", { target: target("input") }), review)).toBeNull();
+    expect(resolvePlayerShortcut(key("p", { repeat: true }), review)).toBeNull();
+    expect(resolvePlayerShortcut(key("4", { ctrlKey: true }), review)).toBeNull();
     expect(resolvePlayerShortcut(key("r"), { openDialog: "other" })).toBeNull();
+    expect(resolvePlayerShortcut(key("Enter"), { openDialog: "other" })).toBeNull();
   });
 
   test("repeat cannot retrigger toggles but can continue navigation", () => {

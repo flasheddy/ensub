@@ -14,6 +14,19 @@ const SHORTCUTS = new Map([
   ["r", { type: "toggle-review" }],
 ]);
 
+const REVIEW_SHORTCUTS = new Map([
+  [" ", { type: "review-replay" }],
+  ["p", { type: "review-replay" }],
+  ["Enter", { type: "review-reveal" }],
+  ["0", { type: "review-rate", rating: 0 }],
+  ["1", { type: "review-rate", rating: 1 }],
+  ["2", { type: "review-rate", rating: 2 }],
+  ["3", { type: "review-rate", rating: 3 }],
+  ["4", { type: "review-rate", rating: 4 }],
+  ["5", { type: "review-rate", rating: 5 }],
+  ["r", { type: "toggle-review" }],
+]);
+
 function normalizedKey(value) {
   return value.length === 1 && value !== " " ? value.toLowerCase() : value;
 }
@@ -35,9 +48,26 @@ function isLookupCaptureTarget(target) {
   ));
 }
 
+function isReviewSelectionTarget(target) {
+  if (!target || typeof target.closest !== "function") return false;
+  return Boolean(target.isContentEditable || target.closest(
+    "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+  ));
+}
+
 export function resolvePlayerShortcut(event, { openDialog = null, canCaptureLookup = false } = {}) {
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
   const key = normalizedKey(event.key);
+  if (openDialog) {
+    if (openDialog !== "review") return null;
+    const reviewAction = REVIEW_SHORTCUTS.get(key) ?? null;
+    if (!reviewAction || event.repeat) return null;
+    if (reviewAction.type === "toggle-review") return reviewAction;
+    if (isReviewSelectionTarget(event.target)) return null;
+    if (["review-replay", "review-reveal"].includes(reviewAction.type)
+      && [" ", "Enter"].includes(key) && isEditingOrCommandTarget(event.target)) return null;
+    return reviewAction;
+  }
   const action = SHORTCUTS.get(key) ?? null;
   if (!action) return null;
   if (action.type === "capture-lookup") {
@@ -45,7 +75,6 @@ export function resolvePlayerShortcut(event, { openDialog = null, canCaptureLook
     return isLookupCaptureTarget(event.target) ? action : null;
   }
   if (event.repeat && ["toggle-playback", "toggle-review"].includes(action.type)) return null;
-  if (openDialog) return openDialog === "review" && action.type === "toggle-review" ? action : null;
   return isEditingOrCommandTarget(event.target) ? null : action;
 }
 

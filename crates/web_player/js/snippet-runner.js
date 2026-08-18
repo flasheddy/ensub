@@ -48,6 +48,10 @@ export function createSnippetRunner(audio, {
     if (!validDescriptor(descriptor)) {
       return Promise.resolve({ status: "audio_unavailable", reason: "invalid_slice" });
     }
+    const currentSource = audio.currentSrc || audio.src;
+    if (currentSource === descriptor.audioSourceUrl && audio.error) {
+      return Promise.resolve({ status: "audio_unavailable", reason: "existing_error" });
+    }
     const operationGeneration = ++generation;
     let resolve;
     const result = new Promise((settled) => { resolve = settled; });
@@ -118,9 +122,10 @@ export function createSnippetRunner(audio, {
     operation.listeners.error = () => settle(operation, "audio_unavailable", "error");
     for (const event of EVENTS) audio.addEventListener(event, operation.listeners[event]);
 
-    const currentSource = audio.currentSrc || audio.src;
     if (currentSource !== descriptor.audioSourceUrl) {
       audio.src = descriptor.audioSourceUrl;
+      audio.load();
+    } else if (audio.readyState === 0) {
       audio.load();
     } else {
       seekToStart();

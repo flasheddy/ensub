@@ -344,6 +344,46 @@ fn due_prompt_hashes_the_canonical_state_and_omits_answer_fields() {
     );
     assert_eq!(card.default_context_id.as_deref(), Some("context-1"));
     assert_eq!(card.contexts[0].sentence, "We went home.");
+    assert_eq!(serialized["headword"], "Went");
+    assert!(serialized["contexts"][0]["selectedSurface"].is_null());
+    for hidden in ["term", "lemma", "phonetic", "definition"] {
+        assert!(
+            serialized.get(hidden).is_none(),
+            "{hidden} must stay hidden"
+        );
+    }
+}
+
+#[test]
+fn podcast_due_prompt_exposes_the_selected_surface_without_answer_fields() {
+    let captured_at_ms = 1_776_499_200_000;
+    let mut learning = PlayerLearning::open(
+        MemoryBackend::default(),
+        "ensub.test",
+        SnapshotAccess::ReadWrite,
+        &lexicon(),
+    )
+    .expect("learning runtime must open");
+    learning
+        .capture_podcast(CapturePodcastInput {
+            draft: draft(),
+            selected_lemma: None,
+            captured_at_ms,
+        })
+        .expect("podcast capture must save");
+
+    let prompt = learning
+        .due_reviews(DueReviewsInputDto {
+            as_of_ms: captured_at_ms,
+            limit: 1,
+        })
+        .expect("due review must load")
+        .cards
+        .remove(0);
+    let serialized = serde_json::to_value(prompt).expect("prompt DTO must serialize");
+
+    assert_eq!(serialized["headword"], "went");
+    assert_eq!(serialized["contexts"][0]["selectedSurface"], "went");
     for hidden in ["term", "lemma", "phonetic", "definition"] {
         assert!(
             serialized.get(hidden).is_none(),
@@ -429,7 +469,7 @@ fn reveal_then_rating_uses_rust_validation_and_rejects_stale_state() {
 }
 
 #[test]
-fn podcast_review_prompt_exposes_only_saved_context_and_audio_descriptor() {
+fn podcast_review_prompt_exposes_target_context_and_audio_without_answer() {
     let captured_at_ms = 1_776_499_200_000;
     let mut learning = PlayerLearning::open(
         MemoryBackend::default(),

@@ -88,8 +88,8 @@
                 <button id="disambiguate-button" class="secondary-command" type="button">Explain in context</button>
                 <button id="provider-settings-button" class="lookup-close" type="button" aria-label="Provider settings" title="Provider settings">⚙</button>
               </div>
-              <section id="disambiguation-result" class="disambiguation-result" aria-label="AI contextual explanation" hidden>
-                <span>AI context</span>
+              <section id="disambiguation-result" class="disambiguation-result" aria-label="AI-generated contextual explanation" hidden>
+                <span>AI-generated context</span>
                 <p id="disambiguation-message" role="status"></p>
               </section>
             </aside>
@@ -129,7 +129,7 @@
     </footer>
 
     <section id="review-dialog" class="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title" hidden>
-      <div class="review-panel">
+      <div id="review-panel" class="review-panel" tabindex="-1">
         <header class="review-header">
           <div>
             <span id="review-progress" class="review-progress"></span>
@@ -141,12 +141,14 @@
         <div id="review-content" class="review-content">
           <label id="review-context-label" for="review-context">Context</label>
           <select id="review-context"></select>
+          <strong id="review-headword" class="review-headword"></strong>
           <blockquote id="review-sentence" class="review-sentence"></blockquote>
           <button id="review-play" class="review-play" type="button">Replay snippet</button>
           <p id="review-audio-status" class="review-audio-status" role="status"></p>
           <button id="review-reveal" class="primary-command review-reveal" type="button">Reveal answer</button>
           <section id="review-answer" class="review-answer" aria-label="Answer" hidden>
             <div><strong id="review-lemma"></strong><span id="review-phonetic"></span></div>
+            <span id="review-part-of-speech" class="review-part-of-speech" hidden></span>
             <p id="review-definition"></p>
           </section>
           <div id="review-ratings" class="review-ratings" aria-label="Rate recall" hidden>
@@ -157,7 +159,6 @@
             <button class="review-rating" type="button" data-rating="4">4</button>
             <button class="review-rating" type="button" data-rating="5">5</button>
           </div>
-          <button id="review-next" class="primary-command review-next" type="button" hidden>Next card</button>
         </div>
       </div>
     </section>
@@ -185,10 +186,16 @@
       <div class="provider-panel">
         <h2 id="provider-consent-title">Send context to provider?</h2>
         <p>The selected word, saved sentence, candidate local dictionary senses, and episode label leave this device. The full transcript and audio are never sent.</p>
+        <dl class="provider-request-summary">
+          <dt>Destination</dt><dd><code id="provider-request-destination"></code></dd>
+          <dt>Method</dt><dd><code id="provider-request-method"></code></dd>
+          <dt>Content-Type</dt><dd><code id="provider-request-content-type"></code></dd>
+          <dt>Authorization</dt><dd><code id="provider-request-authorization">Bearer [configured credential]</code></dd>
+        </dl>
         <pre id="provider-payload-preview" class="provider-payload-preview"></pre>
         <div class="provider-commands">
           <button id="provider-consent-cancel" class="secondary-command" type="button">Cancel</button>
-          <button id="provider-consent-confirm" class="primary-command" type="button">Send once</button>
+          <button id="provider-consent-confirm" class="primary-command" type="button">Allow and send</button>
         </div>
       </div>
     </section>

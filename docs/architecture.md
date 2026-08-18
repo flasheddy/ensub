@@ -182,24 +182,31 @@ M5.5 extends the portable boundary without moving platform effects into Rust.
 retaining the single SM-2 transition implementation and caller-supplied
 timestamps. `language_engine` serializes candidate senses and the minimal
 context request, owns the static JSON-schema system prompt, and validates the
-provider response. `ensub-wasm` exposes prompt-only cards, reveal DTOs, rating
-transitions, and disambiguation preparation/validation.
+provider response. `ensub-wasm` exposes prompt cards containing only the
+captured headword, context-specific selected surface, saved context, and audio
+descriptor; separate reveal DTOs expose lexical answers. It also exposes rating
+transitions and disambiguation preparation/validation.
 
 The PWA owns both effectful loops. Its review reducer follows
-`open -> prompt -> revealing -> rated -> complete -> exit`; session IDs reject
-late effects. A canonical `ReviewState` content hash is the deterministic
-review token, and the final storage mutation is a compare-and-swap. The audio
-host checkpoints active episode state, suppresses ordinary player sync during
-snippet mode, and combines `timeupdate` with animation frames. Every terminal
-`pause`, `abort`, `ended`, or `error` event synchronously cancels the frame and
-removes all boundary listeners before settling.
+`open -> prompt -> revealing -> rated -> reloading -> complete -> exit`; session
+IDs reject late effects. A canonical `ReviewState` content hash is the
+deterministic review token, and the final storage mutation is a compare-and-swap.
+The audio host pushes episode ID, millisecond position, and playback rate onto a
+session stack, locks ordinary transport, suppresses player sync during snippet
+mode, and combines `timeupdate` with animation frames. Exit restores the episode
+and leaves it paused. Every terminal `pause`, `abort`, `ended`, or `error` event
+synchronously cancels the frame and removes all boundary listeners before
+settling. Review entry aborts contextual provider work, closes and clears lookup
+state, and renders on an opaque surface above the transcript.
 
 The provider adapter is replaceable host JavaScript. It owns HTTP, timeout,
 credential headers, response-size limits, and consent storage; it does not enter
 the WASM dependency graph. The default OpenAI-compatible request includes
-`response_format: { "type": "json_object" }`. Calls exist only behind the
-lookup panel's explicit action, and AI results remain separate from local
-lexicon/capture state.
+`response_format: { "type": "json_object" }`. It plans one serialized body used
+unchanged by both the consent preview and `fetch`; the credential is disclosed
+only as a redacted authorization header. Calls exist only behind the lookup
+panel's explicit action, and AI results remain separate from local lexicon and
+capture state.
 
 `ensub-llm` is a separate, provider-neutral network adapter. No current
 application surface depends on it, so the bundled lexicon remains the default

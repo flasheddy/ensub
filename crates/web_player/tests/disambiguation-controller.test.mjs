@@ -22,6 +22,7 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
   let handlers;
   let state;
   const sent = [];
+  const planned = [];
   const captured = [];
   let consent = false;
   const prepared = {
@@ -42,6 +43,7 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
       return { status: "created_card", wordId: "word-go", contextId: "context-1" };
     },
     dueCount: () => ({ dueCount: 0 }),
+    dueReviews: ({ asOfMs }) => ({ asOfMs, cards: [] }),
   };
   const settings = {
     load: () => ({ adapterId: "openai_chat_completions", endpointUrl: "https://provider.example.test/v1/chat/completions", model: "model" }),
@@ -50,7 +52,21 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
     grantConsent: () => { consent = true; },
     save: () => {},
   };
-  const adapters = { openai_chat_completions: { send: async (input) => { sent.push(input); return sendImpl(input); } } };
+  const adapters = {
+    openai_chat_completions: {
+      planRequest(input) {
+        const request = {
+          endpointUrl: input.endpointUrl,
+          method: "POST",
+          contentType: "application/json",
+          bodyText: JSON.stringify({ model: input.model, lexicalData: input.prepared.request }, null, 2),
+        };
+        planned.push(request);
+        return request;
+      },
+      async send(input) { sent.push(input); return sendImpl(input); },
+    },
+  };
   const episode = { episode: { identity: { internalId: "episode", feedUrl: "feed" } }, selectedTranscriptUrl: "transcript" };
   const workspace = {
     view: () => ({ revision: 1, feeds: [], episodes: [] }),
@@ -59,7 +75,7 @@ function harness({ sendImpl = async () => "{}", prepareImpl } = {}) {
   const view = { elements: { audio: new FakeAudio() }, bind(value) { handlers = value; }, render(value) { state = value; }, updateSync() {} };
   const coordinator = { workspace, mutate: async (method) => method === "selectEpisode" ? { ...episode, transcriptState: "none" } : null };
   createController({ coordinator, learning, view, disambiguationSettings: settings, disambiguationAdapters: adapters });
-  return { get handlers() { return handlers; }, get state() { return state; }, setState(value) { state = value; }, sent, captured, prepared };
+  return { get handlers() { return handlers; }, get state() { return state; }, setState(value) { state = value; }, sent, planned, captured, prepared };
 }
 
 test("capture shortcut commits the prepared lookup through the atomic capture path", async () => {
@@ -85,12 +101,28 @@ test("disambiguation waits for consent then sends only the prepared minimal requ
   expect(app.sent).toHaveLength(0);
   expect(app.state.lookup.ai.status).toBe("consent");
   expect(app.state.lookup.ai.prepared.request).toEqual(app.prepared.request);
+  expect(app.state.lookup.ai.transportRequest).toEqual(app.planned[0]);
+  expect(app.state.lookup.ai.transportRequest.bodyText).not.toContain("synthetic-secret");
 
   await app.handlers.confirmDisambiguation();
   expect(app.sent).toHaveLength(1);
-  expect(app.sent[0].prepared.request).toEqual(app.prepared.request);
+  expect(app.sent[0].request).toEqual(app.planned[0]);
   expect(app.state.lookup.ai.status).toBe("ready");
   expect(app.state.lookup.result.status).toBe("found");
+});
+
+test("consent is reused only after another explicit request", async () => {
+  const app = harness({ sendImpl: async () => JSON.stringify({ matchedSenseId: null, explanation: "Ambiguous.", confidence: "low" }) });
+  await app.handlers.selectEpisode("episode");
+  await app.handlers.lookupToken({ cueId: "cue", tokenIndex: 0 });
+  await app.handlers.requestDisambiguation();
+  await app.handlers.confirmDisambiguation();
+
+  await app.handlers.requestDisambiguation();
+
+  expect(app.sent).toHaveLength(2);
+  expect(app.planned).toHaveLength(2);
+  expect(app.state.lookup.ai.status).toBe("ready");
 });
 
 test("provider failure leaves the local lookup result intact", async () => {
@@ -102,6 +134,28 @@ test("provider failure leaves the local lookup result intact", async () => {
   expect(app.state.lookup.ai.status).toBe("failed");
   expect(app.state.lookup.result.status).toBe("found");
   expect(app.state.lookup.prepared.surface).toBe("went");
+});
+
+test("opening review aborts an in-flight contextual request and closes lookup", async () => {
+  let requestSignal;
+  const app = harness({
+    sendImpl: ({ signal }) => new Promise((resolve) => {
+      requestSignal = signal;
+      signal.addEventListener("abort", () => resolve("{}"), { once: true });
+      setTimeout(() => resolve("{}"), 100);
+    }),
+  });
+  await app.handlers.selectEpisode("episode");
+  await app.handlers.lookupToken({ cueId: "cue", tokenIndex: 0 });
+  await app.handlers.requestDisambiguation();
+  const sending = app.handlers.confirmDisambiguation();
+  await Promise.resolve();
+
+  await app.handlers.openReview();
+
+  expect(requestSignal.aborted).toBe(true);
+  expect(app.state.lookup.status).toBe("closed");
+  await sending;
 });
 
 test("payload preparation failure is visible without changing local definitions", async () => {

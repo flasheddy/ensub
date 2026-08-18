@@ -134,12 +134,16 @@ Both browser hosts expose a raw JSON download containing the exact active
 snapshot string, or the backup only when the active key is absent.
 
 In-player review reads due cards from the same learning snapshot. The prompt
-does not expose lemma or definition fields until the explicit Reveal action.
-Each prompt carries a deterministic hash of its current scheduling state; stale
+exposes the captured headword and, when stored, the exact selected token surface
+so the learner can identify the target in context. It does not expose the
+normalized lemma, pronunciation, or definition fields until the explicit
+Reveal action. Each prompt carries a deterministic hash of its current scheduling state; stale
 ratings from another tab are rejected and refreshed rather than replayed. Audio
 snippet replay seeks the existing media element and does not write review
 history. If the enclosure is unreachable or absent from cache, the saved text
-remains available and rating continues normally.
+remains available and rating continues normally. Review checkpoints the active
+episode ID, millisecond position, and playback rate only for the in-memory
+session; exit restores those values and leaves playback paused.
 
 Optional contextual disambiguation is disabled until the user explicitly
 configures a provider and selects **Explain in context**. Provider metadata is
@@ -149,13 +153,15 @@ the request authorization header and is not written to logs, fixtures, static
 assets, or the WASM module.
 
 Before the first request to each configured adapter/endpoint combination, a
-versioned disclosure shows the outbound payload. Only the selected word, saved
-sentence, candidate bundled-dictionary senses, and minimal episode label leave
-the device. Ensub does not send the full transcript, feed contents, raw audio,
-learning snapshot, or playback history. Provider responses are schema-validated
-and displayed in a separate ephemeral panel; they never replace stored local
-definitions. Missing credentials, offline/CORS failures, timeouts, HTTP errors,
-and malformed responses do not disable lookup, capture, playback, or review.
+versioned disclosure shows the destination, method, content type, redacted
+authorization header, and exact serialized JSON body. The lexical user data is
+limited to the selected word, saved sentence, candidate bundled-dictionary
+senses, and minimal episode label. Ensub does not send the full transcript, feed
+contents, raw audio, learning snapshot, or playback history. Provider responses
+are schema-validated and displayed in a separate, explicitly AI-generated,
+ephemeral panel; they never replace stored local definitions. Missing
+credentials, offline/CORS failures, timeouts, HTTP errors, and malformed
+responses do not disable lookup, capture, playback, or review.
 
 ## Ensub Context Storage
 

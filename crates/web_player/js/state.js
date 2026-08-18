@@ -18,7 +18,10 @@ export function initialState() {
 function initialLookupState() {
   return {
     status: "closed", selection: null, prepared: null, result: null, message: "",
-    ai: { status: "idle", prepared: null, response: null, message: "", requestId: 0 },
+    ai: {
+      status: "idle", prepared: null, transportRequest: null, adapterId: null,
+      response: null, message: "", requestId: 0,
+    },
   };
 }
 
@@ -109,9 +112,28 @@ export function reduce(state, action) {
     case "lookup/aiSettings":
       return { ...state, lookup: { ...state.lookup, ai: { ...state.lookup.ai, status: "settings", message: action.message ?? "" } } };
     case "lookup/aiConsent":
-      return { ...state, lookup: { ...state.lookup, ai: { status: "consent", prepared: action.prepared, response: null, message: "", requestId: action.requestId } } };
+      return {
+        ...state,
+        lookup: {
+          ...state.lookup,
+          ai: {
+            status: "consent", prepared: action.prepared, transportRequest: action.transportRequest,
+            adapterId: action.adapterId, response: null, message: "", requestId: action.requestId,
+          },
+        },
+      };
     case "lookup/aiRequested":
-      return { ...state, lookup: { ...state.lookup, ai: { ...state.lookup.ai, status: "requesting", prepared: action.prepared, response: null, message: "", requestId: action.requestId } } };
+      return {
+        ...state,
+        lookup: {
+          ...state.lookup,
+          ai: {
+            ...state.lookup.ai, status: "requesting", prepared: action.prepared,
+            transportRequest: action.transportRequest, adapterId: action.adapterId,
+            response: null, message: "", requestId: action.requestId,
+          },
+        },
+      };
     case "lookup/aiResolved":
       if (action.requestId !== state.lookup.ai.requestId) return state;
       return { ...state, lookup: { ...state.lookup, ai: { ...state.lookup.ai, status: "ready", response: action.response, message: "" } } };
@@ -150,6 +172,9 @@ export function reduce(state, action) {
     case "review/rated":
       if (!currentReviewSession(state, action)) return state;
       return { ...state, review: { ...state.review, phase: "rated", saving: false, transition: action.transition } };
+    case "review/reloading":
+      if (!currentReviewSession(state, action) || state.review.phase !== "rated") return state;
+      return { ...state, review: { ...state.review, phase: "reloading", message: "Loading the next due card…" } };
     case "review/ratingFailed":
       if (!currentReviewSession(state, action)) return state;
       return { ...state, review: { ...state.review, saving: false, message: action.message } };

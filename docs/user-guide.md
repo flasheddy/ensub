@@ -279,10 +279,12 @@ focused:
 Speed steps are 0.75x, 1x, 1.25x, 1.5x, 1.75x, and 2x. Shortcuts are ignored
 while a form input, select, ordinary button, link, or editable region has focus,
 when a modifier key is held, and while a non-review dialog is open. In Review,
-only `R` remains available as a global command. Holding `Space` or `R` does not
-repeatedly toggle its action. `C` is narrower: it works only once per key press
-when Capture is available and focus is on a transcript token or a non-editable
-lookup control.
+the initially focused panel accepts `Space` or `P` to replay, `Enter` to reveal,
+`0` through `5` to rate and advance, and `R` or `Escape` to exit. Native button
+and select keys remain available after tabbing to a control. Held review keys do
+not repeat their actions. `C` is narrower: it works only once per key press when
+Capture is available and focus is on a transcript token or a non-editable lookup
+control.
 
 ### Transcript Lookup And Capture
 
@@ -303,9 +305,15 @@ not create another learning card. A different cue or episode attaches another
 encounter to the same lemma and preserves its existing review schedule.
 
 Choose **Review** to open due podcast cards without exposing the answer. Replay
-the saved logical audio slice when the enclosure is available, reveal the
-answer explicitly, then rate recall from 0 through 5. If audio is unavailable,
-the saved sentence remains visible and the rating workflow continues offline.
+the saved logical audio slice when the enclosure is available. The captured
+headword appears above the sentence and the exact saved token is highlighted
+when that context retains token metadata. Reveal explicitly to show the lemma,
+pronunciation, part of speech, and definition, then rate recall from 0 through
+5; a saved rating advances immediately. Opening Review closes the lookup panel
+and the opaque Review surface isolates the card from the transcript. The Player
+restores the episode position and speed on exit but leaves playback paused. If
+audio is unavailable, the saved sentence remains visible and the rating
+workflow continues offline.
 
 ### Offline And Local Data
 
@@ -328,9 +336,11 @@ migration cannot finish, a recovery alert marks learning storage read-only and
 offers an exact raw JSON export; playback and offline lookup remain available.
 
 Contextual provider requests occur only after **Explain in context**. The
-consent dialog previews the selected word, saved sentence, candidate local
-senses, and episode label before the first request to an endpoint. Ordinary
-feed, playback, lookup, capture, and review actions never contact the provider.
+consent dialog previews the exact JSON request body, destination, method,
+content type, and a redacted authorization header before the first request to
+an endpoint. Its lexical data contains only the selected word, saved sentence,
+candidate local senses, and episode title. Ordinary feed, playback, lookup,
+capture, and review actions never contact the provider.
 
 ## Ensub Context
 

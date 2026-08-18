@@ -15,7 +15,8 @@ export function createAudioHost(audio, {
   let generation = 0;
   let frame = 0;
   let snippetMode = false;
-  let checkpoint = null;
+  const sessionStack = [];
+  const restoreStack = [];
   const snippets = createSnippetRunner(audio, { requestFrame, cancelFrame });
 
   function values() {
@@ -68,33 +69,47 @@ export function createAudioHost(audio, {
     load(source, nextGeneration) {
       snippets.cancel("episode_changed");
       snippetMode = false;
-      checkpoint = null;
+      sessionStack.length = 0;
+      restoreStack.length = 0;
       generation = nextGeneration;
       cancelFrame(frame);
       audio.src = source;
       audio.load();
     },
-    toggle() { return audio.paused ? audio.play() : (audio.pause(), Promise.resolve()); },
-    skip(seconds) { audio.currentTime = Math.max(0, Math.min(audio.duration || Infinity, audio.currentTime + seconds)); sync(); },
-    seek(seconds) { audio.currentTime = Math.max(0, seconds); sync(); },
-    setRate(rate) { audio.playbackRate = rate; },
-    setVolume(volume) { audio.volume = volume; },
-    toggleMute() { audio.muted = !audio.muted; },
-    enterSnippetMode() {
-      if (checkpoint) return { ...checkpoint };
-      checkpoint = {
+    toggle() {
+      if (snippetMode) return Promise.resolve();
+      return audio.paused ? audio.play() : (audio.pause(), Promise.resolve());
+    },
+    skip(seconds) {
+      if (snippetMode) return;
+      audio.currentTime = Math.max(0, Math.min(audio.duration || Infinity, audio.currentTime + seconds));
+      sync();
+    },
+    seek(seconds) {
+      if (snippetMode) return;
+      audio.currentTime = Math.max(0, seconds);
+      sync();
+    },
+    setRate(rate) { if (!snippetMode) audio.playbackRate = rate; },
+    setVolume(volume) { if (!snippetMode) audio.volume = volume; },
+    toggleMute() { if (!snippetMode) audio.muted = !audio.muted; },
+    enterSnippetMode(episodeId = null) {
+      const session = {
+        episode_id: episodeId,
+        currentTime_ms: Math.max(0, Math.round((Number.isFinite(audio.currentTime) ? audio.currentTime : 0) * 1000)),
+        playbackRate: audio.playbackRate,
+      };
+      sessionStack.push(session);
+      restoreStack.push({
         source: audio.currentSrc || audio.src,
-        currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
-        paused: audio.paused,
-        rate: audio.playbackRate,
         volume: audio.volume,
         muted: audio.muted,
         generation,
-      };
+      });
       snippetMode = true;
       cancelFrame(frame);
       audio.pause();
-      return { ...checkpoint };
+      return { ...session };
     },
     playSnippet(descriptor) {
       if (!snippetMode) {
@@ -102,23 +117,28 @@ export function createAudioHost(audio, {
       }
       return snippets.play(descriptor);
     },
+    cancelSnippet(reason = "cancelled") { snippets.cancel(reason); },
     async exitSnippetMode() {
-      if (!checkpoint) return;
-      const restore = checkpoint;
+      const session = sessionStack.pop();
+      const restore = restoreStack.pop();
+      if (!session || !restore) return null;
       snippets.cancel("session_closed");
       audio.pause();
       await restoreSource(restore.source);
-      audio.currentTime = restore.currentTime;
-      audio.playbackRate = restore.rate;
+      try { audio.currentTime = session.currentTime_ms / 1000; } catch { /* Failed media still restores as text-only state. */ }
+      audio.playbackRate = session.playbackRate;
       audio.volume = restore.volume;
       audio.muted = restore.muted;
       generation = restore.generation;
-      checkpoint = null;
-      snippetMode = false;
-      if (!restore.paused) await audio.play();
-      sync();
+      snippetMode = sessionStack.length > 0;
+      if (!snippetMode) {
+        onEvent("pause", values(), generation);
+        sync();
+      }
+      return { ...session };
     },
     get generation() { return generation; },
     get snippetMode() { return snippetMode; },
+    get sessionDepth() { return sessionStack.length; },
   };
 }

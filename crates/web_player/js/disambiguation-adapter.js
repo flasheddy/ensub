@@ -28,6 +28,16 @@ export function buildOpenAiChatCompletionsBody(prepared, model) {
   };
 }
 
+export function buildOpenAiChatCompletionsRequest({ endpointUrl, model, prepared }) {
+  const endpoint = validateEndpoint(endpointUrl);
+  return {
+    endpointUrl: endpoint.href,
+    method: "POST",
+    contentType: "application/json",
+    bodyText: JSON.stringify(buildOpenAiChatCompletionsBody(prepared, model), null, 2),
+  };
+}
+
 function validateEndpoint(value) {
   let endpoint;
   try {
@@ -69,13 +79,17 @@ export function createOpenAiChatCompletionsAdapter({
 } = {}) {
   return {
     id: "openai_chat_completions",
-    async send({ endpointUrl, model, credential, prepared, signal }) {
-      const endpoint = validateEndpoint(endpointUrl);
+    planRequest: buildOpenAiChatCompletionsRequest,
+    async send({ request, credential, signal }) {
+      if (!request || request.method !== "POST" || request.contentType !== "application/json"
+        || typeof request.bodyText !== "string") {
+        throw new DisambiguationTransportError("invalid_request", "A planned provider request is required.");
+      }
+      const endpoint = validateEndpoint(request.endpointUrl);
       const normalizedCredential = typeof credential === "string" ? credential.trim() : "";
       if (!normalizedCredential) {
         throw new DisambiguationTransportError("missing_credential", "A provider credential is required.");
       }
-      const body = buildOpenAiChatCompletionsBody(prepared, model);
       const timeout = new AbortController();
       const timer = setTimeout(
         () => timeout.abort(new DOMException("Timed out", "TimeoutError")),
@@ -88,16 +102,16 @@ export function createOpenAiChatCompletionsAdapter({
         let response;
         try {
           response = await fetchImpl(endpoint, {
-            method: "POST",
+            method: request.method,
             credentials: "omit",
             redirect: "error",
             cache: "no-store",
             signal: combined,
             headers: {
-              "content-type": "application/json",
+              "content-type": request.contentType,
               authorization: `Bearer ${normalizedCredential}`,
             },
-            body: JSON.stringify(body),
+            body: request.bodyText,
           });
         } catch (cause) {
           if (timeout.signal.aborted) {

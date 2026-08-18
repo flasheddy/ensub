@@ -57,7 +57,7 @@ function harness({ reviewImpl, audioSlice = { audioSourceUrl: "episode.mp3", sli
   return { get handlers() { return handlers; }, get state() { return state; }, calls, card };
 }
 
-test("review uses a fixed session timestamp and rates only after reveal", async () => {
+test("review uses a fixed session timestamp and advances after a successful rating", async () => {
   const app = harness();
   await app.handlers.openReview();
   expect(app.state.review.phase).toBe("prompt");
@@ -70,7 +70,19 @@ test("review uses a fixed session timestamp and rates only after reveal", async 
   expect(app.calls.find(([name]) => name === "review")[1]).toEqual({
     wordId: "word-1", reviewToken: "rs1.current", rating: 4, reviewedAtMs: 123_456,
   });
-  expect(app.state.review.phase).toBe("rated");
+  expect(app.calls.filter(([name]) => name === "dueReviews")).toHaveLength(2);
+  expect(app.state.review.phase).toBe("complete");
+});
+
+test("opening review closes an active lookup before loading cards", async () => {
+  const app = harness();
+  await app.handlers.lookupToken({ cueId: "cue", tokenIndex: 0 });
+  expect(app.state.lookup.status).not.toBe("closed");
+
+  await app.handlers.openReview();
+
+  expect(app.state.lookup.status).toBe("closed");
+  expect(app.state.review.phase).toBe("prompt");
 });
 
 test("snippet replay never calls the scheduler and exit closes the session", async () => {
@@ -85,12 +97,11 @@ test("snippet replay never calls the scheduler and exit closes the session", asy
   expect(app.state.review.phase).toBe("closed");
 });
 
-test("the next action loads another batch at the original cutoff", async () => {
+test("automatic advance loads another batch at the original cutoff", async () => {
   const app = harness();
   await app.handlers.openReview();
   await app.handlers.revealReview();
   await app.handlers.rateReview(4);
-  await app.handlers.advanceReview();
   expect(app.calls.filter(([name]) => name === "dueReviews")).toEqual([
     ["dueReviews", { asOfMs: 123_456, limit: 20 }],
     ["dueReviews", { asOfMs: 123_456, limit: 20 }],
@@ -106,7 +117,7 @@ test("missing audio keeps the saved sentence available for normal review", async
   expect(app.state.review.cards[0].contexts[0].sentence).toBe("We went home.");
   await app.handlers.revealReview();
   await app.handlers.rateReview(3);
-  expect(app.state.review.phase).toBe("rated");
+  expect(app.state.review.phase).toBe("complete");
 });
 
 test("a stale review token reloads the queue without retrying the rating", async () => {
@@ -120,4 +131,17 @@ test("a stale review token reloads the queue without retrying the rating", async
   expect(app.calls.filter(([name]) => name === "dueReviews")).toHaveLength(2);
   expect(app.state.review.phase).toBe("prompt");
   expect(app.state.review.message).toContain("changed");
+});
+
+test("a failed rating stays revealed and does not advance", async () => {
+  const app = harness({ reviewImpl: () => { throw new Error("Write failed."); } });
+  await app.handlers.openReview();
+  await app.handlers.revealReview();
+  await app.handlers.rateReview(2);
+
+  expect(app.calls.filter(([name]) => name === "review")).toHaveLength(1);
+  expect(app.calls.filter(([name]) => name === "dueReviews")).toHaveLength(1);
+  expect(app.state.review.answerStatus).toBe("ready");
+  expect(app.state.review.phase).toBe("revealing");
+  expect(app.state.review.message).toContain("Write failed");
 });

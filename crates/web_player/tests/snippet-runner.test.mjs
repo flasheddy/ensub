@@ -10,6 +10,7 @@ class FakeAudio extends EventTarget {
     this.duration = 10;
     this.paused = true;
     this.readyState = 1;
+    this.error = null;
     this.pauseCalls = 0;
     this.listeners = new Map();
   }
@@ -103,6 +104,41 @@ describe("audio snippet runner", () => {
     for (const event of ["loadedmetadata", "seeked", "timeupdate", "pause", "abort", "ended", "error"]) {
       expect(audio.listenerCount(event)).toBe(0);
     }
+  });
+
+  test("keeps playing at 51ms and stops at the inclusive 50ms boundary on timeupdate", async () => {
+    const audio = new FakeAudio();
+    const raf = frames();
+    const runner = createSnippetRunner(audio, {
+      requestFrame: (callback) => raf.request(callback),
+      cancelFrame: (id) => raf.cancel(id),
+    });
+    const { result } = await start(runner, audio);
+
+    audio.currentTime = 2.449;
+    audio.dispatchEvent(new Event("timeupdate"));
+    expect(runner.active).toBe(true);
+    audio.currentTime = 2.45;
+    audio.dispatchEvent(new Event("timeupdate"));
+
+    await expect(result).resolves.toMatchObject({ status: "completed", reason: "boundary" });
+    expect(audio.currentTime).toBe(2.5);
+  });
+
+  test("fails immediately when the active enclosure has already errored", async () => {
+    const audio = new FakeAudio();
+    const raf = frames();
+    audio.error = { code: 4 };
+    const runner = createSnippetRunner(audio, {
+      requestFrame: (callback) => raf.request(callback),
+      cancelFrame: (id) => raf.cancel(id),
+    });
+
+    const result = runner.play(descriptor);
+
+    expect(runner.active).toBe(false);
+    await expect(result).resolves.toEqual({ status: "audio_unavailable", reason: "existing_error" });
+    expect(raf.active).toBe(0);
   });
 
   test("pause abort ended and error synchronously cancel RAF and every boundary listener", async () => {

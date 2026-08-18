@@ -35,6 +35,7 @@ pub struct DueReviewsDto {
 pub struct ReviewPromptDto {
     pub word_id: String,
     pub review_token: String,
+    pub headword: String,
     pub next_review_at_ms: i64,
     pub default_context_id: Option<String>,
     pub contexts: Vec<ReviewContextDto>,
@@ -45,6 +46,7 @@ pub struct ReviewPromptDto {
 pub struct ReviewContextDto {
     pub context_id: String,
     pub sentence: String,
+    pub selected_surface: Option<String>,
     pub source_label: String,
     pub episode_title: Option<String>,
     pub context_quality: Option<PodcastContextQualityDto>,
@@ -146,6 +148,7 @@ pub(crate) fn review_token(state: &ReviewState) -> Result<String, serde_json::Er
 pub(crate) fn prompt_from_item(
     item: ReviewQueueItem,
 ) -> Result<ReviewPromptDto, serde_json::Error> {
+    let headword = item.card.word.term.clone();
     let mut podcast_contexts = item
         .podcast_contexts
         .into_iter()
@@ -164,6 +167,9 @@ pub(crate) fn prompt_from_item(
                 .clone()
                 .unwrap_or_else(|| context.source.clone());
             let context_quality = podcast.as_ref().map(|record| record.context.quality.into());
+            let selected_surface = podcast
+                .as_ref()
+                .map(|record| record.context.selected_token.surface().to_string());
             let audio_slice = podcast.as_ref().map(|record| AudioSlicePlaybackDto {
                 audio_source_url: record.context.audio_slice.audio_source_url().to_string(),
                 slice_start_ms: record.context.audio_slice.start_ms(),
@@ -172,6 +178,7 @@ pub(crate) fn prompt_from_item(
             ReviewContextDto {
                 context_id: context.id.into_inner(),
                 sentence: context.sentence,
+                selected_surface,
                 source_label,
                 episode_title,
                 context_quality,
@@ -183,6 +190,7 @@ pub(crate) fn prompt_from_item(
     Ok(ReviewPromptDto {
         word_id: item.card.word.id.into_inner(),
         review_token: review_token(&item.card.state)?,
+        headword,
         next_review_at_ms: item.card.state.next_review_at.timestamp_millis(),
         default_context_id: contexts.first().map(|context| context.context_id.clone()),
         contexts,

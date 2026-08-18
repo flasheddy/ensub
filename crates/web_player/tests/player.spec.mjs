@@ -78,7 +78,6 @@ test("installed shell completes lookup capture and SRS review offline", async ({
   await page.getByRole("button", { name: /Review/ }).click();
   await page.getByRole("button", { name: "Reveal answer" }).click();
   await page.locator('.review-rating[data-rating="4"]').click();
-  await page.getByRole("button", { name: "Next card" }).click();
   await expect(page.locator("#review-status")).toContainText("Review complete");
 });
 
@@ -383,43 +382,89 @@ test("dialogs trap focus, close with Escape, and restore the invoking control", 
   await expect(token).toBeFocused();
 });
 
-test("captured cards review in-player with masked answers and restored playback", async ({ page }) => {
+test("captured cards review by keyboard and restore the episode paused without navigation", async ({ page }) => {
   await page.getByRole("button", { name: "Load Demo Episode" }).click();
   const token = page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first();
   await token.click();
   await page.getByRole("complementary", { name: "Word lookup" }).getByRole("button", { name: "Capture", exact: true }).click();
   await expect(page.locator("#review-due-count")).toHaveText("1");
 
-  await page.locator("audio").evaluate((audio) => { audio.currentTime = 4; audio.pause(); });
-  await page.getByRole("button", { name: /Review/ }).click();
+  const audio = page.locator("audio");
+  await expect(audio).toHaveCount(1);
+  await page.locator("#play-button").click();
+  await audio.evaluate((element) => { element.currentTime = 4; element.playbackRate = 1.5; });
+  await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(false);
+  const source = await audio.getAttribute("src");
+  const url = page.url();
+  await token.focus();
+  await page.keyboard.press("r");
   await expect(page.getByRole("dialog", { name: "Review" })).toBeVisible();
+  await expect(page.locator("#review-panel")).toBeFocused();
+  await expect(page.getByRole("complementary", { name: "Word lookup" })).toBeHidden();
+  await expect(page.locator("#lookup-surface")).toBeEmpty();
+  await expect(page.locator("#lookup-body")).toBeEmpty();
+  await expect(page.locator("#review-dialog")).toHaveCSS("background-color", "rgb(17, 17, 24)");
+  expect(page.url()).toBe(url);
+  await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
+  await expect(page.locator("footer.player")).toHaveJSProperty("inert", true);
+  await expect(page.locator("#review-headword")).toHaveText("Listening");
   await expect(page.locator("#review-sentence")).toContainText("Listening begins");
+  await expect(page.locator("#review-sentence mark.review-target")).toHaveText("Listening");
   await expect(page.locator("#review-answer")).toBeHidden();
   await expect(page.locator(".review-rating").first()).toBeHidden();
 
-  await page.getByRole("button", { name: "Replay snippet" }).click();
-  await page.locator("audio").evaluate((audio) => {
-    audio.currentTime = 119;
-    audio.dispatchEvent(new Event("timeupdate"));
+  await page.keyboard.press("p");
+  await audio.evaluate((element) => {
+    element.currentTime = 119;
+    element.dispatchEvent(new Event("timeupdate"));
   });
   await expect(page.locator("#review-play")).toBeEnabled({ timeout: 5_000 });
   await expect(page.locator("#review-answer")).toBeHidden();
-  await page.getByRole("button", { name: "Reveal answer" }).click();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#review-lemma")).toHaveText("listening");
+  await expect(page.locator("#review-part-of-speech")).toHaveText("noun");
+  await expect(page.locator("#review-definition")).toHaveText("the act of hearing attentively");
+  await expect(page.locator("#review-sentence mark.review-target")).toHaveText("Listening");
   await expect(page.locator(".review-rating")).toHaveCount(6);
-  await page.locator('.review-rating[data-rating="4"]').click();
-  await expect(page.getByRole("button", { name: "Next card" })).toBeVisible();
-  await page.getByRole("button", { name: "Next card" }).click();
+  await page.keyboard.press("4");
   await expect(page.locator("#review-status")).toContainText("Review complete");
-  await page.getByRole("button", { name: "Exit review" }).click();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Review" })).toBeHidden();
-  await expect.poll(() => page.locator("audio").evaluate((audio) => audio.currentTime)).toBeCloseTo(4, 1);
+  await expect(audio).toHaveAttribute("src", source);
+  await expect.poll(() => audio.evaluate((element) => element.currentTime)).toBeCloseTo(4, 1);
+  await expect.poll(() => audio.evaluate((element) => element.playbackRate)).toBe(1.5);
+  await expect.poll(() => audio.evaluate((element) => element.paused)).toBe(true);
   await expect(page.locator("#review-due-count")).toHaveText("0");
+});
+
+test("a failed enclosure degrades Review to text without blocking keyboard rating", async ({ page }) => {
+  await page.locator("#feed-url").fill(`${fixtureOrigin}/feed.xml`);
+  await page.getByRole("button", { name: "Load podcast feed" }).click();
+  const audio = page.locator("audio");
+  await expect.poll(() => audio.evaluate((element) => element.error?.code ?? 0)).toBeGreaterThan(0);
+  const token = page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first();
+  await token.click();
+  await page.getByRole("complementary", { name: "Word lookup" }).getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(page.locator("#review-due-count")).toHaveText("1");
+  await page.getByRole("button", { name: /Review/ }).click();
+  await expect(page.getByRole("dialog", { name: "Review" })).toBeVisible();
+  await expect(page.locator("#review-panel")).toBeFocused();
+  await expect(page.locator("#review-sentence")).toContainText("Listening crosses origins safely");
+  await page.keyboard.press("Space");
+
+  await expect(page.locator("#review-audio-status")).toContainText("Audio is unavailable");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("3");
+  await expect(page.locator("#review-status")).toContainText("Review complete");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Review" })).toBeHidden();
 });
 
 test("context explanation requires disclosure consent and sends the minimal schema-enforced payload", async ({ page }) => {
   let providerRequest;
+  let providerCalls = 0;
   await page.route("**/provider", async (route) => {
+    providerCalls += 1;
     providerRequest = route.request();
     await route.fulfill({
       status: 200,
@@ -441,16 +486,47 @@ test("context explanation requires disclosure consent and sends the minimal sche
   await page.getByRole("button", { name: "Explain in context" }).click();
   const consent = page.getByRole("dialog", { name: "Send context to provider?" });
   await expect(consent).toBeVisible();
-  const preview = JSON.parse(await page.locator("#provider-payload-preview").textContent());
-  expect(Object.keys(preview).sort()).toEqual(["candidateSenses", "episodeLabel", "savedSentence", "selectedWord"]);
+  const previewText = await page.locator("#provider-payload-preview").textContent();
+  await expect(page.locator("#provider-request-destination")).toHaveText(`${new URL(page.url()).origin}/provider`);
+  await expect(page.locator("#provider-request-method")).toHaveText("POST");
+  await expect(page.locator("#provider-request-content-type")).toHaveText("application/json");
+  await expect(page.locator("#provider-request-authorization")).toHaveText("Bearer [configured credential]");
+  expect(await consent.textContent()).not.toContain("synthetic-credential");
   expect(providerRequest).toBeUndefined();
-  await page.getByRole("button", { name: "Send once" }).click();
+  await page.getByRole("button", { name: "Allow and send" }).click();
   await expect(page.locator("#disambiguation-message")).toContainText("attentive hearing");
+  await expect(page.getByText("AI-generated context", { exact: true })).toBeVisible();
 
   const body = JSON.parse(providerRequest.postData());
+  expect(providerRequest.postData()).toBe(previewText);
   expect(body.response_format).toEqual({ type: "json_object" });
   expect(body.messages[0].content).toContain('"additionalProperties": false');
   expect(body.messages[1].content).not.toContain("demo.mp3");
+  const lexicalData = JSON.parse(body.messages[1].content.split("\n").at(-1));
+  expect(Object.keys(lexicalData).sort()).toEqual(["candidateSenses", "episodeLabel", "savedSentence", "selectedWord"]);
   expect(providerRequest.headers().authorization).toBe("Bearer synthetic-credential");
   await expect(page.locator(".lookup-definitions li").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Explain in context" }).click();
+  await expect(consent).toBeHidden();
+  await expect.poll(() => providerCalls).toBe(2);
+});
+
+test("offline provider failure leaves local lookup and capture intact", async ({ page, context }) => {
+  await page.getByRole("button", { name: "Load Demo Episode" }).click();
+  await page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first().click();
+  await page.getByRole("button", { name: "Explain in context" }).click();
+  await page.locator("#provider-endpoint").fill(`${new URL(page.url()).origin}/offline-provider`);
+  await page.locator("#provider-model").fill("fixture-model");
+  await page.locator("#provider-credential").fill("synthetic-credential");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await page.getByRole("button", { name: "Explain in context" }).click();
+  await expect(page.getByRole("dialog", { name: "Send context to provider?" })).toBeVisible();
+
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Allow and send" }).click();
+
+  await expect(page.locator("#disambiguation-message")).toContainText("could not access");
+  await expect(page.locator(".lookup-definitions li").first()).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Word lookup" }).getByRole("button", { name: "Capture", exact: true })).toBeEnabled();
 });

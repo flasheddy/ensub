@@ -16,6 +16,52 @@ function resourceLabel(resource, index) {
   return [resource.language, format].filter(Boolean).join(" · ") || `Transcript ${index + 1}`;
 }
 
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}_]/u;
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function findTargetRange(sentence, selectedSurface) {
+  const target = selectedSurface?.trim();
+  if (!sentence || !target) return null;
+  const matches = sentence.matchAll(new RegExp(escapeRegExp(target), "giu"));
+  for (const match of matches) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const before = Array.from(sentence.slice(0, start)).at(-1) ?? "";
+    const after = Array.from(sentence.slice(end))[0] ?? "";
+    if ((!before || !WORD_CHARACTER.test(before)) && (!after || !WORD_CHARACTER.test(after))) {
+      return { start, end };
+    }
+  }
+  return null;
+}
+
+function renderReviewSentence(element, sentence, selectedSurface) {
+  const range = findTargetRange(sentence, selectedSurface);
+  if (!range) {
+    element.textContent = sentence;
+    return;
+  }
+  const target = document.createElement("mark");
+  target.className = "review-target";
+  target.textContent = sentence.slice(range.start, range.end);
+  element.replaceChildren(
+    document.createTextNode(sentence.slice(0, range.start)),
+    target,
+    document.createTextNode(sentence.slice(range.end)),
+  );
+}
+
+function splitDefinition(value) {
+  const definition = value?.trim() ?? "";
+  const match = /^([\p{L}][\p{L}\p{M}\s-]{0,31}):\s+(.+)$/u.exec(definition);
+  return match
+    ? { partOfSpeech: match[1], definition: match[2] }
+    : { partOfSpeech: "", definition };
+}
+
 export function createView() {
   const elements = {
     audio: $("audio"), reader: $("reader"), empty: $("empty-state"), workspace: $("episode-workspace"),
@@ -27,17 +73,17 @@ export function createView() {
     transcriptStatus: $("transcript-status"), transcriptSelect: $("transcript-select"),
     follow: $("follow-button"), play: $("play-button"), back: $("back-button"),
     forward: $("forward-button"), seek: $("seek"), elapsed: $("elapsed"), remaining: $("remaining"),
-    speed: $("speed"), mute: $("mute-button"), volume: $("volume"), network: $("network-state"),
+    speed: $("speed"), mute: $("mute-button"), volume: $("volume"), network: $("network-state"), player: document.querySelector(".player"),
     inspector: $("lookup-inspector"), lookupSurface: $("lookup-surface"), lookupPhonetic: $("lookup-phonetic"),
     lookupBody: $("lookup-body"), lookupChoice: $("lookup-choice"), lookupChoiceLabel: $("lookup-choice-label"),
     capture: $("capture-button"), lookupClose: $("lookup-close"),
     reviewButton: $("review-button"), reviewDueCount: $("review-due-count"),
-    reviewDialog: $("review-dialog"), reviewClose: $("review-close"), reviewProgress: $("review-progress"),
+    reviewDialog: $("review-dialog"), reviewPanel: $("review-panel"), reviewClose: $("review-close"), reviewProgress: $("review-progress"),
     reviewStatus: $("review-status"), reviewContent: $("review-content"), reviewContext: $("review-context"),
-    reviewContextLabel: $("review-context-label"), reviewSentence: $("review-sentence"), reviewPlay: $("review-play"),
+    reviewContextLabel: $("review-context-label"), reviewHeadword: $("review-headword"), reviewSentence: $("review-sentence"), reviewPlay: $("review-play"),
     reviewAudioStatus: $("review-audio-status"), reviewReveal: $("review-reveal"), reviewAnswer: $("review-answer"),
-    reviewLemma: $("review-lemma"), reviewPhonetic: $("review-phonetic"), reviewDefinition: $("review-definition"),
-    reviewRatings: $("review-ratings"), reviewNext: $("review-next"),
+    reviewLemma: $("review-lemma"), reviewPhonetic: $("review-phonetic"), reviewPartOfSpeech: $("review-part-of-speech"), reviewDefinition: $("review-definition"),
+    reviewRatings: $("review-ratings"),
     disambiguationActions: $("disambiguation-actions"), disambiguate: $("disambiguate-button"),
     providerSettingsButton: $("provider-settings-button"), disambiguationResult: $("disambiguation-result"),
     disambiguationMessage: $("disambiguation-message"), providerSettingsDialog: $("provider-settings-dialog"),
@@ -45,6 +91,8 @@ export function createView() {
     providerModel: $("provider-model"), providerCredential: $("provider-credential"), providerRemember: $("provider-remember"),
     providerSettingsMessage: $("provider-settings-message"), providerSettingsCancel: $("provider-settings-cancel"),
     providerConsentDialog: $("provider-consent-dialog"), providerPayloadPreview: $("provider-payload-preview"),
+    providerRequestDestination: $("provider-request-destination"), providerRequestMethod: $("provider-request-method"),
+    providerRequestContentType: $("provider-request-content-type"), providerRequestAuthorization: $("provider-request-authorization"),
     providerConsentCancel: $("provider-consent-cancel"), providerConsentConfirm: $("provider-consent-confirm"),
   };
   let cueNodes = [];
@@ -86,7 +134,6 @@ export function createView() {
   elements.reviewClose.addEventListener("click", () => handlers.closeReview());
   elements.reviewReveal.addEventListener("click", () => handlers.revealReview());
   elements.reviewPlay.addEventListener("click", () => handlers.playReviewSnippet());
-  elements.reviewNext.addEventListener("click", () => handlers.advanceReview());
   elements.reviewContext.addEventListener("change", () => handlers.selectReviewContext(elements.reviewContext.value));
   elements.reviewRatings.addEventListener("click", (event) => {
     const button = event.target.closest(".review-rating");
@@ -121,7 +168,7 @@ export function createView() {
       const controls = modalControls(modal);
       const first = controls[0];
       const last = controls.at(-1);
-      if (event.shiftKey && document.activeElement === first) { last?.focus(); event.preventDefault(); }
+      if (event.shiftKey && [first, elements.reviewPanel].includes(document.activeElement)) { last?.focus(); event.preventDefault(); }
       else if (!event.shiftKey && document.activeElement === last) { first?.focus(); event.preventDefault(); }
     }
     const visibleDialogs = [...document.querySelectorAll("[role='dialog']:not([hidden])")];
@@ -280,6 +327,22 @@ export function createView() {
     settingsWasOpen = settingsOpen;
     consentWasOpen = consentOpen;
     if (!open) {
+      elements.lookupSurface.textContent = "";
+      elements.lookupPhonetic.textContent = "";
+      elements.lookupBody.replaceChildren();
+      elements.lookupChoice.replaceChildren();
+      elements.lookupChoice.hidden = true;
+      elements.lookupChoiceLabel.hidden = true;
+      elements.capture.hidden = true;
+      elements.disambiguationActions.hidden = true;
+      elements.disambiguationResult.hidden = true;
+      elements.disambiguationMessage.textContent = "";
+      elements.providerSettingsMessage.textContent = "";
+      elements.providerRequestDestination.textContent = "";
+      elements.providerRequestMethod.textContent = "";
+      elements.providerRequestContentType.textContent = "";
+      elements.providerRequestAuthorization.textContent = "";
+      elements.providerPayloadPreview.textContent = "";
       const returnFocus = lookupReturnFocus;
       if (lookupWasOpen) queueMicrotask(() => returnFocus?.focus?.());
       lookupWasOpen = false;
@@ -297,7 +360,12 @@ export function createView() {
     elements.disambiguationActions.hidden = true;
     elements.disambiguationResult.hidden = true;
     elements.providerSettingsMessage.textContent = lookup.ai.status === "settings" ? lookup.ai.message : "";
-    elements.providerPayloadPreview.textContent = lookup.ai.prepared ? JSON.stringify(lookup.ai.prepared.request, null, 2) : "";
+    const transportRequest = lookup.ai.transportRequest;
+    elements.providerRequestDestination.textContent = transportRequest?.endpointUrl ?? "";
+    elements.providerRequestMethod.textContent = transportRequest?.method ?? "";
+    elements.providerRequestContentType.textContent = transportRequest?.contentType ?? "";
+    elements.providerRequestAuthorization.textContent = transportRequest ? "Bearer [configured credential]" : "";
+    elements.providerPayloadPreview.textContent = transportRequest?.bodyText ?? "";
     elements.lookupBody.replaceChildren();
     if (lookup.status === "pending") elements.lookupBody.textContent = "Looking up locally…";
     else if (lookup.status === "capturing") elements.lookupBody.textContent = "Saving capture…";
@@ -339,11 +407,13 @@ export function createView() {
   function renderReview(review, storageWritable) {
     const open = review.phase !== "closed";
     elements.reviewDialog.hidden = !open;
+    elements.player.inert = open;
+    elements.player.classList.toggle("is-review-locked", open);
     elements.reviewDueCount.textContent = String(review.dueCount);
     elements.reviewButton.disabled = open;
     if (open && !reviewWasOpen) {
       reviewReturnFocus = document.activeElement;
-      queueMicrotask(() => elements.reviewClose.focus());
+      queueMicrotask(() => elements.reviewPanel.focus());
     } else if (!open && reviewWasOpen) {
       reviewReturnFocus?.focus?.();
       reviewReturnFocus = null;
@@ -353,11 +423,12 @@ export function createView() {
 
     const card = review.cards[review.index];
     const context = card?.contexts.find((item) => item.contextId === review.selectedContextId) ?? card?.contexts[0];
-    const activeCard = Boolean(card) && !["open", "complete", "exit"].includes(review.phase);
+    const activeCard = Boolean(card) && !["open", "reloading", "complete", "exit"].includes(review.phase);
     elements.reviewContent.hidden = !activeCard;
     elements.reviewProgress.textContent = card ? `${review.index + 1} of ${review.cards.length}` : "Due cards";
     elements.reviewStatus.textContent = review.message;
     if (review.phase === "open") elements.reviewStatus.textContent = "Loading due cards…";
+    if (review.phase === "reloading") elements.reviewStatus.textContent = review.message;
     if (review.phase === "complete") elements.reviewStatus.textContent = review.message || "Review complete.";
     if (review.phase === "exit") elements.reviewStatus.textContent = "Returning to the episode…";
     if (!activeCard) return;
@@ -372,7 +443,9 @@ export function createView() {
     const multipleContexts = card.contexts.length > 1;
     elements.reviewContext.hidden = !multipleContexts;
     elements.reviewContextLabel.hidden = !multipleContexts;
-    elements.reviewSentence.textContent = context?.sentence ?? "Saved context unavailable.";
+    const sentence = context?.sentence ?? "Saved context unavailable.";
+    elements.reviewHeadword.textContent = context?.selectedSurface || card.headword || "Target unavailable";
+    renderReviewSentence(elements.reviewSentence, sentence, context?.selectedSurface);
     elements.reviewPlay.disabled = !context?.audioSlice || review.audio.status === "playing";
     elements.reviewPlay.textContent = review.audio.status === "playing" ? "Playing…" : "Replay snippet";
     elements.reviewAudioStatus.textContent = review.audio.message;
@@ -386,14 +459,18 @@ export function createView() {
     elements.reviewRatings.querySelectorAll("button").forEach((button) => {
       button.disabled = review.saving || !storageWritable;
     });
-    elements.reviewNext.hidden = review.phase !== "rated";
     if (revealed) {
+      const definition = splitDefinition(review.answer.definition);
       elements.reviewLemma.textContent = review.answer.lemma || review.answer.term;
       elements.reviewPhonetic.textContent = review.answer.phonetic;
-      elements.reviewDefinition.textContent = review.answer.definition;
+      elements.reviewPartOfSpeech.textContent = definition.partOfSpeech;
+      elements.reviewPartOfSpeech.hidden = !definition.partOfSpeech;
+      elements.reviewDefinition.textContent = definition.definition;
     } else {
       elements.reviewLemma.textContent = "";
       elements.reviewPhonetic.textContent = "";
+      elements.reviewPartOfSpeech.textContent = "";
+      elements.reviewPartOfSpeech.hidden = true;
       elements.reviewDefinition.textContent = "";
     }
   }

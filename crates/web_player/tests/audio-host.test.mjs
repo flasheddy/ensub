@@ -63,15 +63,14 @@ test("snippet mode suppresses normal sync and restores the active episode checkp
     cancelFrame(id) { frames.delete(id); },
   });
 
-  const checkpoint = host.enterSnippetMode();
-  expect(checkpoint).toMatchObject({
-    source: "https://media.example.test/episode.mp3",
-    currentTime: 12.25,
-    paused: false,
-    rate: 1.5,
-    volume: 0.65,
-    muted: true,
+  const checkpoint = host.enterSnippetMode("episode-1");
+  expect(checkpoint).toEqual({
+    episode_id: "episode-1",
+    currentTime_ms: 12_250,
+    playbackRate: 1.5,
   });
+  expect(host.sessionDepth).toBe(1);
+  expect(audio.paused).toBe(true);
   expect(mediaEvents).toEqual([]);
   expect(syncs).toEqual([]);
 
@@ -88,14 +87,44 @@ test("snippet mode suppresses normal sync and restores the active episode checkp
   expect(mediaEvents).toEqual([]);
   expect(syncs).toEqual([]);
 
-  await host.exitSnippetMode();
+  const restored = await host.exitSnippetMode();
 
+  expect(restored).toEqual(checkpoint);
+  expect(host.sessionDepth).toBe(0);
   expect(audio.currentSrc).toBe("https://media.example.test/episode.mp3");
   expect(audio.currentTime).toBe(12.25);
   expect(audio.playbackRate).toBe(1.5);
   expect(audio.volume).toBe(0.65);
   expect(audio.muted).toBe(true);
-  expect(audio.paused).toBe(false);
-  expect(mediaEvents).toContain("play");
+  expect(audio.paused).toBe(true);
+  expect(mediaEvents).not.toContain("play");
+  expect(mediaEvents).toContain("pause");
   expect(syncs.at(-1)).toBe(12_250);
+});
+
+test("snippet sessions restore frames in LIFO order and lock ordinary transport", async () => {
+  const audio = new FakeAudio();
+  const host = createAudioHost(audio, {
+    onEvent() {}, onSync() {}, requestFrame: () => 1, cancelFrame() {},
+  });
+
+  const episode = host.enterSnippetMode("episode-1");
+  audio.currentTime = 30;
+  audio.playbackRate = 0.75;
+  const nested = host.enterSnippetMode("episode-2");
+  host.seek(55);
+  host.setRate(2);
+  await host.toggle();
+
+  expect(host.sessionDepth).toBe(2);
+  expect(audio.currentTime).toBe(30);
+  expect(audio.playbackRate).toBe(0.75);
+  expect(audio.paused).toBe(true);
+  await expect(host.exitSnippetMode()).resolves.toEqual(nested);
+  expect(audio.currentTime).toBe(30);
+  expect(audio.playbackRate).toBe(0.75);
+  await expect(host.exitSnippetMode()).resolves.toEqual(episode);
+  expect(audio.currentTime).toBe(12.25);
+  expect(audio.playbackRate).toBe(1.5);
+  expect(audio.paused).toBe(true);
 });

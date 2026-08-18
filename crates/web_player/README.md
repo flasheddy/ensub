@@ -83,23 +83,31 @@ Native `Tab` and `Shift+Tab` order includes every transcript token. Press
 `Enter` on a focused token to open its offline lookup. Player shortcuts are
 ignored when a form field, select, ordinary button, link, or editable region
 has focus, when Alt/Ctrl/Meta/Shift is held, or while a non-review dialog is
-open. Only `R` remains active inside the Review dialog so it can close the
-session. Repeated `Space`, `C`, and `R` keydown events are ignored.
+open. Review initially focuses its panel: `Space` or `P` replays the snippet,
+`Enter` reveals the answer, `0` through `5` rates and advances, and `R` or
+`Escape` exits. Native button and select activation still applies after tabbing
+to a control. Repeated review-command keydown events are ignored.
 
 ## Review
 
 Due cards open in a modal review session inside the player. Prompt DTOs contain
-only saved contexts and logical audio slices; lemma and definition data are
-requested from WASM only after Reveal. The host temporarily checkpoints the
-episode source, position, play/pause state, rate, volume, and mute state while a
-snippet runner seeks and stops the same audio element. Exiting review restores
-that checkpoint. Missing remote audio never blocks text reveal or rating.
+the captured headword, each context's selected token surface when available,
+saved contexts, and logical audio slices. The target is marked in the sentence,
+while lemma, pronunciation, and definition data are requested from WASM only
+after Reveal. Opening Review closes and clears any active lookup, and the opaque
+Review surface isolates the prompt from the transcript. The host temporarily checkpoints the
+episode ID, millisecond position, and playback rate on a session stack while a
+snippet runner seeks and stops the same audio element. Ordinary transport is
+locked during the session. Exiting review restores the episode source,
+position, and rate, and leaves it paused. Missing remote audio never blocks
+text reveal or rating.
 
 Ratings use the shared Rust SM-2 implementation. Each prompt carries an
 `rs1` SHA-256 token derived from canonical current `ReviewState` content. Reveal
 and rating reload that state, and rating also uses storage compare-and-swap, so
 another tab's update produces `review_conflict` and a queue refresh instead of
-an automatic retry.
+an automatic retry. A successful rating advances immediately to the next card
+or completes the fixed-cutoff review session.
 
 ## Offline Installation
 
@@ -152,10 +160,12 @@ versioned in local storage. Credentials use session storage by default and are
 written to local storage only when **Remember on this device** is selected.
 
 Before the first request for an adapter/endpoint/disclosure-version tuple, the
-player displays the exact payload: selected word, saved sentence, candidate
-local senses, and minimal episode label. It never includes the full transcript
-or audio. The Rust language engine creates the prompts and candidate IDs, the
-request asks for `response_format: { "type": "json_object" }`, and Rust
-validates the response against the static schema before it is rendered. AI
-output remains visually separate and ephemeral; it never overwrites bundled
-lexicon data or captured definitions.
+player displays the destination, method, content type, redacted authorization
+header, and exact serialized JSON body that will be sent. The user-data portion
+contains only the selected word, saved sentence, candidate local senses, and
+minimal episode label; it never includes the full transcript or audio. The Rust
+language engine creates the prompts and candidate IDs, the request asks for
+`response_format: { "type": "json_object" }`, and Rust validates the response
+against the static schema before it is rendered. AI-generated context remains
+visually separate and ephemeral; it never overwrites bundled lexicon data or
+captured definitions.

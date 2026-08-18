@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DisambiguationTransportError,
   buildOpenAiChatCompletionsBody,
+  buildOpenAiChatCompletionsRequest,
   createOpenAiChatCompletionsAdapter,
 } from "../js/disambiguation-adapter.js";
 
@@ -11,6 +12,21 @@ const prepared = {
 };
 
 describe("OpenAI-compatible disambiguation adapter", () => {
+  test("plans the exact serialized request body shown before sending", () => {
+    const request = buildOpenAiChatCompletionsRequest({
+      endpointUrl: "https://provider.example.test/v1/chat/completions",
+      model: "fixture-model",
+      prepared,
+    });
+
+    expect(request).toEqual({
+      endpointUrl: "https://provider.example.test/v1/chat/completions",
+      method: "POST",
+      contentType: "application/json",
+      bodyText: JSON.stringify(buildOpenAiChatCompletionsBody(prepared, "fixture-model"), null, 2),
+    });
+  });
+
   test("builds the exact schema-enforced chat completions body", () => {
     expect(buildOpenAiChatCompletionsBody(prepared, "fixture-model")).toEqual({
       model: "fixture-model",
@@ -32,12 +48,15 @@ describe("OpenAI-compatible disambiguation adapter", () => {
         }), { status: 200, headers: { "content-type": "application/json" } });
       },
     });
-
-    const content = await adapter.send({
+    const plannedRequest = buildOpenAiChatCompletionsRequest({
       endpointUrl: "https://provider.example.test/v1/chat/completions",
       model: "fixture-model",
-      credential: "fixture-credential",
       prepared,
+    });
+
+    const content = await adapter.send({
+      request: plannedRequest,
+      credential: "fixture-credential",
     });
 
     expect(content).toContain("matchedSenseId");
@@ -52,9 +71,7 @@ describe("OpenAI-compatible disambiguation adapter", () => {
         authorization: "Bearer fixture-credential",
       },
     });
-    expect(JSON.parse(request.options.body)).toEqual(
-      buildOpenAiChatCompletionsBody(prepared, "fixture-model"),
-    );
+    expect(request.options.body).toBe(plannedRequest.bodyText);
     expect(request.options.body).not.toContain("fixture-credential");
   });
 
@@ -66,16 +83,17 @@ describe("OpenAI-compatible disambiguation adapter", () => {
     });
 
     await expect(adapter.send({
-      endpointUrl: "http://provider.example.test/v1/chat/completions",
-      model: "model",
+      request: {
+        endpointUrl: "http://provider.example.test/v1/chat/completions",
+        method: "POST", contentType: "application/json", bodyText: "{}",
+      },
       credential: "credential",
-      prepared,
     })).rejects.toBeInstanceOf(DisambiguationTransportError);
     await expect(adapter.send({
-      endpointUrl: "http://127.0.0.1:8787/v1/chat/completions",
-      model: "model",
+      request: buildOpenAiChatCompletionsRequest({
+        endpointUrl: "http://127.0.0.1:8787/v1/chat/completions", model: "model", prepared,
+      }),
       credential: "credential",
-      prepared,
     })).resolves.toBe("{}");
   });
 
@@ -91,10 +109,10 @@ describe("OpenAI-compatible disambiguation adapter", () => {
         fetchImpl: async () => new Response(JSON.stringify(envelope), { status: 200 }),
       });
       await expect(adapter.send({
-        endpointUrl: "https://provider.example.test/v1/chat/completions",
-        model: "model",
+        request: buildOpenAiChatCompletionsRequest({
+          endpointUrl: "https://provider.example.test/v1/chat/completions", model: "model", prepared,
+        }),
         credential: "credential",
-        prepared,
       })).rejects.toMatchObject({ code: "invalid_provider_response" });
     }
   });

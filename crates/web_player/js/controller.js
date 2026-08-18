@@ -32,6 +32,7 @@ export function createController({
   let feedAbort;
   let transcriptAbort;
   let reviewSession = 0;
+  let reviewSnippetAttempt = 0;
   let disambiguationRequestId = 0;
   let disambiguationAbort;
 
@@ -195,13 +196,17 @@ export function createController({
     return { config, credential };
   }
 
-  async function sendDisambiguation(prepared, requestId) {
+  async function sendDisambiguation(prepared, transportRequest, adapterId, requestId) {
     const provider = providerConfig();
     if (!provider) {
       dispatch({ type: "lookup/aiSettings", message: "Configure the provider endpoint, model, and credential." });
       return;
     }
-    const adapter = disambiguationAdapters[provider.config.adapterId];
+    if (provider.config.adapterId !== adapterId || provider.config.endpointUrl !== transportRequest?.endpointUrl) {
+      dispatch({ type: "lookup/aiSettings", message: "Provider settings changed. Review the request again before sending." });
+      return;
+    }
+    const adapter = disambiguationAdapters[adapterId];
     if (!adapter) {
       dispatch({ type: "lookup/aiSettings", message: "The configured provider adapter is unavailable." });
       return;
@@ -209,13 +214,11 @@ export function createController({
     disambiguationAbort?.abort();
     const request = new AbortController();
     disambiguationAbort = request;
-    dispatch({ type: "lookup/aiRequested", prepared, requestId });
+    dispatch({ type: "lookup/aiRequested", prepared, transportRequest, adapterId, requestId });
     try {
       const responseJson = await adapter.send({
-        endpointUrl: provider.config.endpointUrl,
-        model: provider.config.model,
+        request: transportRequest,
         credential: provider.credential,
-        prepared,
         signal: request.signal,
       });
       const response = await Promise.resolve(learning.validateDisambiguationResponse({
@@ -237,29 +240,51 @@ export function createController({
       return;
     }
     try {
-      const prepared = await Promise.resolve(learning.prepareDisambiguation({ draft: state.lookup.prepared.draft }));
-      const requestId = ++disambiguationRequestId;
-      if (!disambiguationSettings.hasConsent(provider.config.adapterId, provider.config.endpointUrl)) {
-        dispatch({ type: "lookup/aiConsent", prepared, requestId });
+      const adapter = disambiguationAdapters[provider.config.adapterId];
+      if (!adapter?.planRequest) {
+        dispatch({ type: "lookup/aiSettings", message: "The configured provider adapter is unavailable." });
         return;
       }
-      await sendDisambiguation(prepared, requestId);
+      const prepared = await Promise.resolve(learning.prepareDisambiguation({ draft: state.lookup.prepared.draft }));
+      const transportRequest = adapter.planRequest({
+        endpointUrl: provider.config.endpointUrl,
+        model: provider.config.model,
+        prepared,
+      });
+      const requestId = ++disambiguationRequestId;
+      if (!disambiguationSettings.hasConsent(provider.config.adapterId, provider.config.endpointUrl)) {
+        dispatch({
+          type: "lookup/aiConsent", prepared, transportRequest,
+          adapterId: provider.config.adapterId, requestId,
+        });
+        return;
+      }
+      await sendDisambiguation(prepared, transportRequest, provider.config.adapterId, requestId);
     } catch (error) {
       const requestId = ++disambiguationRequestId;
-      dispatch({ type: "lookup/aiRequested", prepared: null, requestId });
+      dispatch({
+        type: "lookup/aiRequested", prepared: null, transportRequest: null,
+        adapterId: null, requestId,
+      });
       dispatch({ type: "lookup/aiFailed", requestId, message: error?.message ?? "The contextual request could not be prepared." });
     }
   }
 
   async function confirmDisambiguation() {
     const prepared = state.lookup.ai.prepared;
+    const transportRequest = state.lookup.ai.transportRequest;
+    const adapterId = state.lookup.ai.adapterId;
     const provider = providerConfig();
-    if (!prepared || !provider) {
+    if (!prepared || !transportRequest || !adapterId || !provider) {
       dispatch({ type: "lookup/aiSettings", message: "Configure the provider before sending." });
       return;
     }
-    disambiguationSettings.grantConsent(provider.config.adapterId, provider.config.endpointUrl);
-    await sendDisambiguation(prepared, state.lookup.ai.requestId);
+    if (provider.config.adapterId !== adapterId || provider.config.endpointUrl !== transportRequest.endpointUrl) {
+      dispatch({ type: "lookup/aiSettings", message: "Provider settings changed. Review the request again before sending." });
+      return;
+    }
+    disambiguationSettings.grantConsent(adapterId, transportRequest.endpointUrl);
+    await sendDisambiguation(prepared, transportRequest, adapterId, state.lookup.ai.requestId);
   }
 
   function saveDisambiguationSettings(input) {
@@ -294,8 +319,11 @@ export function createController({
 
   async function openReview() {
     if (state.review.phase !== "closed") return;
+    disambiguationAbort?.abort();
+    disambiguationAbort = undefined;
+    dispatch({ type: "lookup/closed" });
     const sessionId = ++reviewSession;
-    audio.enterSnippetMode();
+    audio.enterSnippetMode(state.media.episodeId);
     dispatch({ type: "review/opened", sessionId, asOfMs: clock() });
     try {
       await loadReviewQueue(sessionId);
@@ -333,6 +361,7 @@ export function createController({
         reviewedAtMs: clock(),
       });
       dispatch({ type: "review/rated", sessionId, transition });
+      await advanceReview();
       await refreshDueCount();
     } catch (error) {
       if (error?.code === "review_conflict") {
@@ -354,6 +383,7 @@ export function createController({
       dispatch({ type: "review/advanced", sessionId });
       return;
     }
+    dispatch({ type: "review/reloading", sessionId });
     try {
       await loadReviewQueue(sessionId);
     } catch (error) {
@@ -362,11 +392,14 @@ export function createController({
   }
 
   function selectReviewContext(contextId) {
+    reviewSnippetAttempt += 1;
+    audio.cancelSnippet("context_changed");
     dispatch({ type: "review/contextSelected", sessionId: state.review.sessionId, contextId });
   }
 
   async function playReviewSnippet() {
     const sessionId = state.review.sessionId;
+    const attempt = ++reviewSnippetAttempt;
     const card = state.review.cards[state.review.index];
     const context = card?.contexts.find((item) => item.contextId === state.review.selectedContextId);
     if (!context?.audioSlice) {
@@ -375,9 +408,10 @@ export function createController({
     }
     dispatch({ type: "review/audio", sessionId, status: "playing" });
     const result = await audio.playSnippet(context.audioSlice);
+    if (attempt !== reviewSnippetAttempt || sessionId !== state.review.sessionId) return result;
     if (result.status === "audio_unavailable") {
       dispatch({ type: "review/audio", sessionId, status: result.status, message: "Audio is unavailable. Continue with the saved text." });
-    } else if (result.status === "completed") {
+    } else {
       dispatch({ type: "review/audio", sessionId, status: "ready" });
     }
     return result;
@@ -387,6 +421,7 @@ export function createController({
     if (state.review.phase === "closed") return;
     const sessionId = state.review.sessionId;
     dispatch({ type: "review/exiting", sessionId });
+    reviewSnippetAttempt += 1;
     await audio.exitSnippetMode();
     dispatch({ type: "review/closed", sessionId });
     reviewSession += 1;
@@ -425,6 +460,12 @@ export function createController({
         return captureLookup(command.selectedLemma);
       case "toggle-review":
         return state.review.phase === "closed" ? openReview() : closeReview();
+      case "review-replay":
+        return playReviewSnippet();
+      case "review-reveal":
+        return revealReview();
+      case "review-rate":
+        return rateReview(command.rating);
       default:
         break;
     }
