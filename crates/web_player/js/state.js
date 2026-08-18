@@ -86,6 +86,8 @@ export function reduce(state, action) {
       const status = MEDIA_STATUS[action.event] ?? state.media.status;
       return { ...state, media: { ...state.media, status, ...action.values } };
     }
+    case "media/rate":
+      return { ...state, media: { ...state.media, rate: action.rate } };
     case "sync/resolved":
       return { ...state, sync: action.sync };
     case "follow/manual":

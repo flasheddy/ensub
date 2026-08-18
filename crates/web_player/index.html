@@ -39,49 +39,53 @@
     </aside>
 
     <main class="reader" id="reader">
-      <section id="empty-state" class="empty-state">
-        <img src="./assets/demo/cover.png" alt="Synthetic Signal podcast artwork" width="240" height="240">
-        <div>
-          <h1>Listen with the words in view.</h1>
-          <p>Your podcast library and transcripts stay in this browser.</p>
-          <button id="demo-button" class="primary-command" type="button" disabled>Load Demo Episode</button>
-        </div>
-      </section>
-
-      <section id="episode-workspace" class="episode-workspace" hidden>
-        <header class="episode-header">
-          <img id="episode-artwork" src="./assets/demo/cover.png" alt="" width="96" height="96">
-          <div class="episode-heading-copy">
-            <p id="feed-title" class="feed-title"></p>
-            <h1 id="episode-title"></h1>
-            <div class="transcript-toolbar">
-              <label for="transcript-select">Transcript</label>
-              <select id="transcript-select"></select>
-              <button id="follow-button" class="secondary-command" type="button">Following</button>
+      <section id="episode-workspace" class="episode-workspace">
+        <div id="empty-state" class="workspace-empty">
+          <div class="workspace-empty-heading">
+            <img src="./assets/demo/cover.png" alt="" width="72" height="72">
+            <div>
+              <p>Player workspace</p>
+              <h1>No episodes yet</h1>
             </div>
           </div>
-        </header>
-        <div id="transcript-status" class="transcript-status" role="status"></div>
-        <div class="reading-grid">
-          <div id="transcript" class="transcript" aria-label="Synchronized transcript" tabindex="0"></div>
-          <aside id="lookup-inspector" class="lookup-inspector" aria-label="Word lookup" hidden>
-            <div class="lookup-heading">
-              <div><span id="lookup-surface" class="lookup-surface"></span><span id="lookup-phonetic" class="lookup-phonetic"></span></div>
-              <button id="lookup-close" class="lookup-close" type="button" aria-label="Close lookup" title="Close lookup">×</button>
+          <button id="demo-button" class="primary-command" type="button" disabled>Load Demo Episode</button>
+        </div>
+
+        <div id="episode-content" hidden>
+          <header class="episode-header">
+            <img id="episode-artwork" src="./assets/demo/cover.png" alt="" width="96" height="96">
+            <div class="episode-heading-copy">
+              <p id="feed-title" class="feed-title"></p>
+              <h1 id="episode-title"></h1>
+              <div class="transcript-toolbar">
+                <label for="transcript-select">Transcript</label>
+                <select id="transcript-select"></select>
+                <button id="follow-button" class="secondary-command" type="button" hidden>Return to active cue</button>
+              </div>
             </div>
-            <div id="lookup-body" class="lookup-body" role="status"></div>
-            <label id="lookup-choice-label" class="lookup-choice-label" for="lookup-choice" hidden>Lemma</label>
-            <select id="lookup-choice" hidden></select>
-            <button id="capture-button" class="primary-command lookup-capture" type="button" hidden>Capture</button>
-            <div id="disambiguation-actions" class="disambiguation-actions" hidden>
-              <button id="disambiguate-button" class="secondary-command" type="button">Explain in context</button>
-              <button id="provider-settings-button" class="lookup-close" type="button" aria-label="Provider settings" title="Provider settings">⚙</button>
-            </div>
-            <section id="disambiguation-result" class="disambiguation-result" aria-label="AI contextual explanation" hidden>
-              <span>AI context</span>
-              <p id="disambiguation-message" role="status"></p>
-            </section>
-          </aside>
+          </header>
+          <div id="transcript-status" class="transcript-status" role="status"></div>
+          <div class="reading-grid">
+            <div id="transcript" class="transcript" aria-label="Synchronized transcript" tabindex="0"></div>
+            <aside id="lookup-inspector" class="lookup-inspector" aria-label="Word lookup" hidden>
+              <div class="lookup-heading">
+                <div><span id="lookup-surface" class="lookup-surface"></span><span id="lookup-phonetic" class="lookup-phonetic"></span></div>
+                <button id="lookup-close" class="lookup-close" type="button" aria-label="Close lookup" title="Close lookup">×</button>
+              </div>
+              <div id="lookup-body" class="lookup-body" role="status"></div>
+              <label id="lookup-choice-label" class="lookup-choice-label" for="lookup-choice" hidden>Lemma</label>
+              <select id="lookup-choice" hidden></select>
+              <button id="capture-button" class="primary-command lookup-capture" type="button" hidden>Capture</button>
+              <div id="disambiguation-actions" class="disambiguation-actions" hidden>
+                <button id="disambiguate-button" class="secondary-command" type="button">Explain in context</button>
+                <button id="provider-settings-button" class="lookup-close" type="button" aria-label="Provider settings" title="Provider settings">⚙</button>
+              </div>
+              <section id="disambiguation-result" class="disambiguation-result" aria-label="AI contextual explanation" hidden>
+                <span>AI context</span>
+                <p id="disambiguation-message" role="status"></p>
+              </section>
+            </aside>
+          </div>
         </div>
       </section>
     </main>

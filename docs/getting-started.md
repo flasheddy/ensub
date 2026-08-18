@@ -24,6 +24,9 @@ The optional surfaces have additional requirements:
 - TUI: a terminal supported by `crossterm`.
 - COSMIC GUI and applet: Linux graphics, Wayland/X11, and COSMIC development
   dependencies required by the pinned `libcosmic` revision.
+- Ensub Player: Bun 1.3.14, wasm-pack 0.15.0, Playwright 1.62.1, Chromium,
+  Firefox for the WASM browser gate, and the `wasm32-unknown-unknown` Rust
+  target.
 - Ensub Core sandbox: Bun 1.3.14, wasm-pack 0.15.0, Playwright 1.62.1,
   Chromium, Firefox, and the `wasm32-unknown-unknown` Rust target.
 - Ensub Context: Bun 1.3.14 and configured Supabase services.
@@ -153,16 +156,29 @@ permissions.
 ```bash
 cd crates/web_player
 bun install --frozen-lockfile
-bun test
+bun run test
 bun run build
 bun run verify:dist
+bun run test:browser
 bun run serve
 ```
 
-Open `http://127.0.0.1:4175` and choose **Load Demo Episode**. The demo uses
-synthetic local media; a remote podcast feed must allow direct browser access.
-The browser gate suite additionally requires Chromium and Firefox; WebKit is
-not a v0.2.0 release gate.
+Open `http://127.0.0.1:4175`. The player workspace is the initial screen; there
+is no landing page. When the workspace contains no feeds, choose **Load Demo
+Episode** to import `assets/demo-fixture.json`, its embedded transcript cues,
+and the synthetic two-minute `assets/demo.mp3`. The action is available only
+for an empty workspace. Fixture validation and the all-or-nothing cache update
+run in Rust through `ensub-wasm`.
+
+The build generates a content-addressed service worker containing the complete
+application shell, WASM runtime, demo files, and both versioned lexicon
+sidecars. After that worker finishes installing, reloads and the bundled demo
+remain available offline. Use the browser's install action to add the Player as
+a standalone PWA. A remote podcast feed and its enclosures must still allow
+direct browser access; the Player has no proxy.
+
+The browser gate suite requires Chromium, and the WASM browser gate uses
+Firefox. WebKit is not a v0.2.0 release gate.
 
 ## Build the Offline Core Sandbox
 

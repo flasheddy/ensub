@@ -5,7 +5,9 @@ use core_engine::{
     PodcastEpisodeProvenance, PodcastFeed, PodcastFeedProvenance, TranscriptDocument,
     TranscriptFormat, TranscriptProvenance, TranscriptResource,
 };
-use language_engine::{parse_podcast_feed, parse_transcript, reconstruct_transcript_context};
+use language_engine::{
+    parse_podcast_feed, parse_podcast_fixture, parse_transcript, reconstruct_transcript_context,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -15,6 +17,7 @@ use crate::{IngestionError, PodcastEpisodeDto, PodcastFeedDto, TranscriptDocumen
 pub const PLAYER_CACHE_FORMAT: &str = "ensub-player-cache";
 pub const PLAYER_CACHE_SCHEMA_VERSION: u32 = 1;
 pub const MAX_PLAYER_FEED_BYTES: usize = 5 * 1024 * 1024;
+pub const MAX_PLAYER_FIXTURE_BYTES: usize = 1024 * 1024;
 pub const MAX_PLAYER_TRANSCRIPT_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_PLAYER_CUES: usize = 50_000;
 pub const MAX_PLAYER_CACHE_BYTES: usize = 64 * 1024 * 1024;
@@ -23,6 +26,8 @@ pub const MAX_PLAYER_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub enum PlayerWorkspaceError {
     #[error("feed exceeds the 5 MiB player limit")]
     FeedTooLarge,
+    #[error("podcast fixture exceeds the 1 MiB player limit")]
+    FixtureTooLarge,
     #[error("transcript exceeds the 10 MiB player limit")]
     TranscriptTooLarge,
     #[error("transcript exceeds the 50,000 cue player limit")]
@@ -35,6 +40,8 @@ pub enum PlayerWorkspaceError {
     UnsupportedCache,
     #[error("revision capacity was exhausted")]
     RevisionOverflow,
+    #[error("podcast fixture import requires an empty workspace")]
+    WorkspaceNotEmpty,
     #[error("feed was not found")]
     FeedNotFound,
     #[error("episode was not found")]
@@ -59,12 +66,14 @@ impl PlayerWorkspaceError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::FeedTooLarge => "player_feed_too_large",
+            Self::FixtureTooLarge => "player_fixture_too_large",
             Self::TranscriptTooLarge => "player_transcript_too_large",
             Self::TooManyCues => "player_too_many_cues",
             Self::CacheTooLarge => "player_cache_too_large",
             Self::InvalidCache(_) => "player_cache_invalid",
             Self::UnsupportedCache => "player_cache_unsupported",
             Self::RevisionOverflow => "player_revision_overflow",
+            Self::WorkspaceNotEmpty => "player_workspace_not_empty",
             Self::FeedNotFound => "player_feed_not_found",
             Self::EpisodeNotFound => "player_episode_not_found",
             Self::TranscriptNotFound => "player_transcript_not_found",
@@ -159,6 +168,13 @@ pub struct TranscriptSyncDto {
     pub active_cue_indices: Vec<u32>,
     pub anchor_cue_index: Option<u32>,
     pub preceding_cue_index: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CueNavigationDto {
+    pub cue_index: u32,
+    pub start_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,6 +302,60 @@ impl PlayerWorkspace {
         Ok(self.view())
     }
 
+    pub fn import_demo_fixture(
+        &mut self,
+        source_url: &str,
+        json_bytes: &[u8],
+        fetched_at_ms: i64,
+    ) -> Result<EpisodeOpenDto, PlayerWorkspaceError> {
+        if json_bytes.len() > MAX_PLAYER_FIXTURE_BYTES {
+            return Err(PlayerWorkspaceError::FixtureTooLarge);
+        }
+        if !self.cache.feeds.is_empty() {
+            return Err(PlayerWorkspaceError::WorkspaceNotEmpty);
+        }
+        let fixture = parse_podcast_fixture(source_url, json_bytes)
+            .map_err(IngestionError::from)
+            .map_err(PlayerWorkspaceError::from)?;
+        if fixture.transcript.cues().len() > MAX_PLAYER_CUES {
+            return Err(PlayerWorkspaceError::TooManyCues);
+        }
+
+        let mut candidate = self.cache.clone();
+        let feed_url = fixture.feed.source_url.clone();
+        let episode = fixture.episode;
+        let episode_id = episode.identity.internal_id.clone();
+        let transcript_url = fixture.transcript.resource().url.clone();
+        let transcript_language = fixture.transcript.resource().language.clone();
+        candidate.feeds.insert(
+            feed_url.clone(),
+            CachedFeed {
+                feed: fixture.feed,
+                episodes: vec![episode.clone()],
+                fetched_at_ms,
+            },
+        );
+        candidate.transcripts.insert(
+            transcript_key(&episode_id, &transcript_url),
+            CachedTranscript {
+                episode_id: episode_id.clone(),
+                transcript_url: transcript_url.clone(),
+                document: fixture.transcript,
+                fetched_at_ms,
+            },
+        );
+        candidate.selected_feed_url = Some(feed_url);
+        candidate.selected_episode_id = Some(episode_id);
+        candidate.selected_transcript_url = Some(transcript_url);
+        candidate.last_transcript_language = transcript_language;
+        bump_revision(&mut candidate)?;
+        validate_cache(&candidate)?;
+        validate_snapshot_size(&candidate)?;
+        let opened = episode_open_dto(&candidate, &episode)?;
+        self.cache = candidate;
+        Ok(opened)
+    }
+
     pub fn select_episode(
         &mut self,
         episode_id: &str,
@@ -397,6 +467,36 @@ impl PlayerWorkspace {
         })
     }
 
+    pub fn next_cue_at(
+        &self,
+        playback_position_ms: u64,
+    ) -> Result<Option<CueNavigationDto>, PlayerWorkspaceError> {
+        let document = &self.selected_transcript()?.document;
+        let cues = document.cues();
+        let next_group_start = cues.partition_point(|cue| cue.start_ms() <= playback_position_ms);
+        let cue_index = (next_group_start < cues.len()).then_some(next_group_start);
+        cue_index
+            .map(|index| cue_navigation(cues, index))
+            .transpose()
+    }
+
+    pub fn previous_cue_at(
+        &self,
+        playback_position_ms: u64,
+    ) -> Result<Option<CueNavigationDto>, PlayerWorkspaceError> {
+        let document = &self.selected_transcript()?.document;
+        let cues = document.cues();
+        let previous_group_end = cues.partition_point(|cue| cue.start_ms() < playback_position_ms);
+        let cue_index = previous_group_end
+            .checked_sub(1)
+            .and_then(|index| cues.get(index))
+            .map(|cue| cue.start_ms())
+            .map(|start_ms| cues.partition_point(|cue| cue.start_ms() < start_ms));
+        cue_index
+            .map(|index| cue_navigation(cues, index))
+            .transpose()
+    }
+
     pub fn prepare_podcast_capture(
         &self,
         input: &PreparePodcastCaptureInput,
@@ -492,43 +592,64 @@ impl PlayerWorkspace {
         &self,
         episode: &PodcastEpisode,
     ) -> Result<EpisodeOpenDto, PlayerWorkspaceError> {
-        let selected_url = self.cache.selected_transcript_url.clone();
-        let cached = selected_url.as_ref().and_then(|url| {
-            self.cache
-                .transcripts
-                .get(&transcript_key(&episode.identity.internal_id, url))
-        });
-        let supported_count = episode
-            .transcript_resources
-            .iter()
-            .filter(|resource| resource.format.is_some())
-            .count();
-        let transcript_state = if let Some(entry) = cached {
-            if entry.document.cues().is_empty() {
-                TranscriptStateDto::Empty
-            } else {
-                TranscriptStateDto::Ready
-            }
-        } else if selected_url.is_some() {
-            TranscriptStateDto::Loading
-        } else if episode.transcript_resources.is_empty() {
-            TranscriptStateDto::None
-        } else if supported_count == 0 {
-            TranscriptStateDto::UnsupportedOnly
-        } else {
-            TranscriptStateDto::ChoiceRequired
-        };
-        let transcript = cached
-            .map(|entry| transcript_document_dto(&entry.document))
-            .transpose()?;
-        Ok(EpisodeOpenDto {
-            revision: self.cache.revision,
-            episode: episode.clone().into(),
-            selected_transcript_url: selected_url,
-            transcript_state,
-            transcript,
-        })
+        episode_open_dto(&self.cache, episode)
     }
+}
+
+fn episode_open_dto(
+    cache: &PlayerCache,
+    episode: &PodcastEpisode,
+) -> Result<EpisodeOpenDto, PlayerWorkspaceError> {
+    let selected_url = cache.selected_transcript_url.clone();
+    let cached = selected_url.as_ref().and_then(|url| {
+        cache
+            .transcripts
+            .get(&transcript_key(&episode.identity.internal_id, url))
+    });
+    let supported_count = episode
+        .transcript_resources
+        .iter()
+        .filter(|resource| resource.format.is_some())
+        .count();
+    let transcript_state = if let Some(entry) = cached {
+        if entry.document.cues().is_empty() {
+            TranscriptStateDto::Empty
+        } else {
+            TranscriptStateDto::Ready
+        }
+    } else if selected_url.is_some() {
+        TranscriptStateDto::Loading
+    } else if episode.transcript_resources.is_empty() {
+        TranscriptStateDto::None
+    } else if supported_count == 0 {
+        TranscriptStateDto::UnsupportedOnly
+    } else {
+        TranscriptStateDto::ChoiceRequired
+    };
+    let transcript = cached
+        .map(|entry| transcript_document_dto(&entry.document))
+        .transpose()?;
+    Ok(EpisodeOpenDto {
+        revision: cache.revision,
+        episode: episode.clone().into(),
+        selected_transcript_url: selected_url,
+        transcript_state,
+        transcript,
+    })
+}
+
+fn cue_navigation(
+    cues: &[core_engine::TranscriptCue],
+    cue_index: usize,
+) -> Result<CueNavigationDto, PlayerWorkspaceError> {
+    let cue = cues
+        .get(cue_index)
+        .ok_or(PlayerWorkspaceError::SelectionNotFound)?;
+    let cue_index = u32::try_from(cue_index).map_err(|_| PlayerWorkspaceError::TooManyCues)?;
+    Ok(CueNavigationDto {
+        cue_index,
+        start_ms: cue.start_ms(),
+    })
 }
 
 fn validate_cache(cache: &PlayerCache) -> Result<(), PlayerWorkspaceError> {
@@ -617,5 +738,11 @@ impl From<language_engine::PodcastFeedParseError> for PlayerWorkspaceError {
 impl From<language_engine::TranscriptParseError> for PlayerWorkspaceError {
     fn from(error: language_engine::TranscriptParseError) -> Self {
         Self::Ingestion(IngestionError::Transcript(error))
+    }
+}
+
+impl From<language_engine::PodcastFixtureError> for PlayerWorkspaceError {
+    fn from(error: language_engine::PodcastFixtureError) -> Self {
+        Self::Ingestion(IngestionError::Fixture(error))
     }
 }

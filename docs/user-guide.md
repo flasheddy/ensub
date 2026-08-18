@@ -235,12 +235,57 @@ writes. The reset control deletes only the Core snapshot.
 No account or network service is used. After the service worker has installed,
 the complete harness can reload offline.
 
-## Podcast Transcript Lookup And Capture
+## Ensub Player
 
-In Ensub Player, select a transcript word with a pointer or move between word
-targets with Left and Right Arrow. The lookup panel uses only the bundled
-offline lexicon and reports plainly when no entry exists. If a form maps to
-more than one local lemma, choose the intended lemma from the displayed list.
+The installable Player opens directly into the podcast workspace. If no feeds
+have been saved, choose **Load Demo Episode** to import the bundled
+`assets/demo-fixture.json`, its transcript cues, and the synthetic two-minute
+`assets/demo.mp3`. This action is shown only for a zero-feed workspace. If the
+fixture cannot be validated, nothing is imported and the action remains
+available. You can instead enter an HTTP(S) podcast feed URL; that server must
+allow direct browser access because the Player does not use a proxy.
+
+### Playback And Transcript Following
+
+The transcript follows the DOM audio clock. Every cue active at the current
+time is highlighted, so overlapping cues can be highlighted together. The
+primary active cue is also exposed to assistive technology. Following scrolls
+smoothly to that cue; reduced-motion browser settings disable the animation.
+During a gap, the reader can remain anchored to the preceding cue.
+
+Wheel, touch, or manual scrollbar movement suspends automatic following so the
+Player does not pull the transcript away while you read. Choose **Return to
+active cue** to center the current cue and resume following. Click a cue row or
+its timestamp outside a word token to seek audio to the cue's start. Selecting
+transcript text does not seek.
+
+### Player Keys
+
+These shortcuts work from the workspace canvas and while a transcript token is
+focused:
+
+| Key | Action |
+|---|---|
+| `Space` | Play or pause |
+| `J` / Down Arrow | Go to the next cue |
+| `K` / Up Arrow | Go to the previous cue |
+| Left Arrow / Right Arrow | Skip backward or forward 5 seconds |
+| `[` / `]` | Decrease or increase playback speed |
+| `R` | Open or close Review |
+
+Speed steps are 0.75x, 1x, 1.25x, 1.5x, 1.75x, and 2x. Shortcuts are ignored
+while a form input, select, ordinary button, link, or editable region has focus,
+when a modifier key is held, and while a non-review dialog is open. In Review,
+only `R` remains available as a global command. Holding `Space` or `R` does not
+repeatedly toggle its action.
+
+### Transcript Lookup And Capture
+
+Select a transcript word with a pointer, or use native `Tab` and `Shift+Tab` to
+move through token buttons. Press `Enter` on a focused token to open lookup.
+The panel uses only the bundled offline lexicon and reports plainly when no
+entry exists. If a form maps to more than one local lemma, choose the intended
+lemma from the displayed list.
 
 Opening the panel is read-only. Choose **Capture** to save the lemma, ranked
 definitions, reconstructed sentence, podcast provenance, and logical padded
@@ -248,14 +293,19 @@ audio range as one local operation. Repeating the same cue/token encounter does
 not create another learning card. A different cue or episode attaches another
 encounter to the same lemma and preserves its existing review schedule.
 
-Remote audio still requires the enclosure to be cached or reachable. Lookup,
-capture, and reopening previously cached transcripts work offline after the
-player service worker and lexicon assets have installed.
-
 Choose **Review** to open due podcast cards without exposing the answer. Replay
 the saved logical audio slice when the enclosure is available, reveal the
 answer explicitly, then rate recall from 0 through 5. If audio is unavailable,
 the saved sentence remains visible and the rating workflow continues offline.
+
+### Offline And Local Data
+
+The Player's service worker installs the application shell, WASM runtime,
+bundled demo files, and both versioned lexicon sidecars. After installation,
+the demo, lookup, capture, review, and previously cached transcript workflows
+can reload offline. Remote audio still requires the enclosure to be cached or
+reachable. Use the browser's install action to add the Player as a standalone
+PWA.
 
 Choose **Local data** from the top bar to export the exact local learning
 snapshot and Player cache. Provider credentials are excluded. The confirmed

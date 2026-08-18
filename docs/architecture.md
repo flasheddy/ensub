@@ -118,6 +118,10 @@ RSS 2.0 / Atom 1.0 bytes
 WebVTT / SRT text + TranscriptResource
   -> language_engine caption parser and tokenizer
   -> validated TranscriptDocument with source-ordered cues
+
+schema-v1 podcast fixture JSON + source URL
+  -> language_engine strict fixture parser and tokenizer
+  -> validated feed + episode + embedded TranscriptDocument
 ```
 
 `core_engine` owns these media DTOs and their cross-platform invariants.
@@ -135,13 +139,34 @@ storage.
 
 The same WASM package exposes `EnsubPlayerWorkspace`. Rust owns episode identity
 reconciliation, the versioned `ensub-player-cache` envelope, feed/transcript
-parsing, cache validation, and cue-boundary resolution. The PWA owns bounded
+parsing, cache validation, fixture validation and import, active-cue selection,
+and next/previous cue navigation. The zero-feed demo path fetches the bounded
+`assets/demo-fixture.json` bytes and passes them unchanged to
+`importDemoFixture`; Rust requires an empty workspace, resolves its relative
+HTTP(S) resources, validates the feed, episode, and embedded WebVTT cue data,
+then atomically installs the feed, episode, and transcript. A rejected fixture
+does not mutate the live workspace or serialized cache.
+
+The PWA is a thin host. It renders the player workspace directly, owns bounded
 HTTP transport, one DOM audio element, animation-frame scheduling, transcript
-highlight classes, scrolling, focus, and IndexedDB/Web Locks effects. The
-player envelope is deliberately separate from the learning snapshot so its
-schema can evolve independently from learning-storage migrations. IndexedDB
-operations resolve on transaction completion rather than request success; an
-abort therefore leaves both persisted bytes and the live workspace unchanged.
+highlight classes, scrolling, focus, and IndexedDB/Web Locks effects. DOM
+`timeupdate` and `seeked` media times are converted to integer milliseconds and
+passed directly to Rust `syncAt`; animation frames provide additional updates
+while audio plays. Rust returns every active cue plus an anchor, including
+overlapping cues, while JavaScript applies the visual and ARIA state, follows
+the anchor smoothly, suspends following after manual scrolling, and seeks the
+audio element when a cue is chosen. The player envelope is deliberately
+separate from the learning snapshot so its schema can evolve independently
+from learning-storage migrations. IndexedDB operations resolve on transaction
+completion rather than request success; an abort therefore leaves both
+persisted bytes and the live workspace unchanged.
+
+The static build generates a content-addressed service worker after all output
+files are assembled. Its precache includes the application shell, WASM package,
+the `assets/lexicon-v1.manifest.json` and
+`assets/lexicon-v1.postcard.gz` sidecars, and the demo fixture and two-minute
+MP3. Registration begins before WASM boot, so these local assets can be
+installed even while the runtime initializes.
 
 M5.4 adds `preparePodcastCapture` to that workspace and a separate
 `EnsubPlayerLearning` facade. Rust revalidates the workspace revision, episode,

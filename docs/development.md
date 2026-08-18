@@ -113,25 +113,50 @@ The WASM tree must not contain `rusqlite`, `libcosmic`, `ensub-gui`, or
 ## Ensub Player
 
 The player build compiles the shared WASM package, generates theme CSS, copies
-the versioned browser lexicon sidecars, and verifies a fully precached PWA:
+the versioned browser lexicon sidecars, copies the complete Player asset tree,
+and verifies a fully precached PWA:
 
 ```bash
 cd crates/web_player
 bun install --frozen-lockfile
-bun test
+bun run test
 bun run build
 bun run verify:dist
 bun run test:browser
 ```
 
-The browser suite covers demo and real cross-origin CORS feed import, truthful
-no-CORS failure rendering, DOM audio controls, cue highlighting,
-manual-follow behavior, Rust UTF-16 token rendering, keyboard lookup, explicit
-and repeated media capture, persistence, offline reload, focus restoration,
-zero implicit provider calls, and 375px-through-desktop layout. WASM storage
-tests use a committed synthetic v0.1 golden snapshot and cover v1-to-v2
-migration, exact-byte recovery after failed writes, unknown lookup, and
-multi-context lemma association.
+For an interactive preview, build first and then run:
+
+```bash
+bun run serve
+```
+
+The preview listens on `http://127.0.0.1:4175`. It serves MP3 content as
+`audio/mpeg` and honors byte-range requests so browser seeking behaves like a
+production static host. `bun run test:browser` starts this preview and its
+cross-origin feed fixture automatically.
+
+The committed zero-feed demo consists of `assets/demo-fixture.json` and the
+synthetic two-minute `assets/demo.mp3`. JavaScript enforces the transport bound
+and sends the fixture bytes unchanged to Rust; `EnsubPlayerWorkspace` owns
+schema validation and atomic import. The distribution check requires both demo
+files and both browser lexicon sidecars,
+`assets/lexicon-v1.manifest.json` and
+`assets/lexicon-v1.postcard.gz`, and confirms that the generated service worker
+precaches every distribution file.
+
+The browser suite covers direct zero-feed workspace rendering, demo and real
+cross-origin CORS feed import, truthful no-CORS failure rendering, DOM audio
+controls, direct `timeupdate`/`seeked` synchronization through Rust, overlap
+highlighting, manual-follow suspension and resumption, cue seeking, global
+player shortcuts and their input/dialog guards, native token focus and Enter
+lookup, explicit and repeated media capture, persistence, offline reload, focus
+restoration, zero implicit provider calls, and 375px-through-desktop layout.
+WASM storage tests use a committed synthetic v0.1 golden snapshot and cover
+v1-to-v2 migration, exact-byte recovery after failed writes, unknown lookup,
+and multi-context lemma association. Rust fixture and workspace tests cover
+strict schema validation, atomic import, and next/previous cue semantics across
+overlaps, gaps, and transcript boundaries.
 
 ## Ensub Core Offline Sandbox
 

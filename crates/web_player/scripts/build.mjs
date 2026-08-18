@@ -39,7 +39,7 @@ const { stdout: themeCss } = await run(
 if (!themeCss.trim()) throw new Error("ensub-theme-css produced an empty stylesheet");
 
 await mkdir(join(dist, "assets"), { recursive: true });
-for (const item of ["index.html", "styles.css", "manifest.webmanifest", "js", "assets/demo", "assets/icons", "pkg"]) {
+for (const item of ["index.html", "styles.css", "manifest.webmanifest", "js", "assets", "pkg"]) {
   await cp(join(root, item), join(dist, item), { recursive: true });
 }
 for (const file of ["lexicon-v1.manifest.json", "lexicon-v1.postcard.gz"]) {

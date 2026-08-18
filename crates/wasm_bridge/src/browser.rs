@@ -10,6 +10,7 @@ use crate::{
     PrepareDisambiguationInputDto, PreparePodcastCaptureInput, RateReviewInputDto,
     RevealReviewInputDto, ReviewInput, Sandbox, SandboxError, SnapshotAccess, SnapshotError,
     StatsInput, TranscriptResourceDto, ValidateDisambiguationResponseInputDto,
+    MAX_PLAYER_FIXTURE_BYTES,
 };
 
 #[wasm_bindgen]
@@ -195,6 +196,33 @@ impl EnsubPlayerWorkspace {
         to_js(&view)
     }
 
+    #[wasm_bindgen(js_name = importDemoFixture)]
+    pub fn import_demo_fixture(
+        &mut self,
+        source_url: String,
+        fixture_bytes: Uint8Array,
+        fetched_at_ms: f64,
+    ) -> Result<JsValue, JsValue> {
+        if fixture_bytes.length() as usize > MAX_PLAYER_FIXTURE_BYTES {
+            return Err(player_error(PlayerWorkspaceError::FixtureTooLarge));
+        }
+        let fetched_at_ms = safe_milliseconds_u64(fetched_at_ms)?;
+        let fetched_at_ms = i64::try_from(fetched_at_ms).map_err(|_| {
+            js_error(
+                "invalid_argument",
+                "milliseconds must fit the player timestamp range",
+            )
+        })?;
+        let fixture_bytes = fixture_bytes.to_vec();
+        let mut candidate = self.inner.clone();
+        let opened = candidate
+            .import_demo_fixture(&source_url, &fixture_bytes, fetched_at_ms)
+            .map_err(player_error)?;
+        let value = to_js(&opened)?;
+        self.inner = candidate;
+        Ok(value)
+    }
+
     #[wasm_bindgen(js_name = selectEpisode)]
     pub fn select_episode(&mut self, episode_id: String) -> Result<JsValue, JsValue> {
         let opened = self
@@ -243,6 +271,26 @@ impl EnsubPlayerWorkspace {
         to_js(&sync)
     }
 
+    #[wasm_bindgen(js_name = nextCueAt)]
+    pub fn next_cue_at(&self, playback_position_ms: f64) -> Result<JsValue, JsValue> {
+        let playback_position_ms = safe_milliseconds_u64(playback_position_ms)?;
+        let cue = self
+            .inner
+            .next_cue_at(playback_position_ms)
+            .map_err(player_error)?;
+        optional_to_js(cue.as_ref())
+    }
+
+    #[wasm_bindgen(js_name = previousCueAt)]
+    pub fn previous_cue_at(&self, playback_position_ms: f64) -> Result<JsValue, JsValue> {
+        let playback_position_ms = safe_milliseconds_u64(playback_position_ms)?;
+        let cue = self
+            .inner
+            .previous_cue_at(playback_position_ms)
+            .map_err(player_error)?;
+        optional_to_js(cue.as_ref())
+    }
+
     #[wasm_bindgen(js_name = preparePodcastCapture)]
     pub fn prepare_podcast_capture(&self, input: JsValue) -> Result<JsValue, JsValue> {
         let input: PreparePodcastCaptureInput = from_js(input)?;
@@ -279,6 +327,13 @@ fn from_js<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
 fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
     serde_wasm_bindgen::to_value(value)
         .map_err(|error| js_error("serialization_failed", &error.to_string()))
+}
+
+fn optional_to_js<T: Serialize>(value: Option<&T>) -> Result<JsValue, JsValue> {
+    match value {
+        Some(value) => to_js(value),
+        None => Ok(JsValue::NULL),
+    }
 }
 
 fn sandbox_error(error: SandboxError) -> JsValue {

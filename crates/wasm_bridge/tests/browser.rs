@@ -9,13 +9,14 @@ use wasm_bindgen_test::*;
 
 use ensub_wasm::{
     parse_podcast_feed, parse_transcript, CaptureParsedInput, CapturePodcastInput,
-    CapturePodcastOutput, CapturePodcastStatus, DueCountDto, DueCountInputDto, DueReviewsDto,
-    DueReviewsInputDto, EnsubPlayerLearning, EnsubPlayerWorkspace, EnsubSandbox, EpisodeOpenDto,
-    ParseInput, ParseOutput, PlayerWorkspaceDto, PodcastFeedParseOutputDto,
+    CapturePodcastOutput, CapturePodcastStatus, CueNavigationDto, DueCountDto, DueCountInputDto,
+    DueReviewsDto, DueReviewsInputDto, EnsubPlayerLearning, EnsubPlayerWorkspace, EnsubSandbox,
+    EpisodeOpenDto, ParseInput, ParseOutput, PlayerWorkspaceDto, PodcastFeedParseOutputDto,
     PrepareDisambiguationInputDto, PreparePodcastCaptureInput, PreparedDisambiguationDto,
     PreparedPodcastCaptureDto, RateReviewInputDto, RevealReviewInputDto, ReviewAnswerDto,
     ReviewTransitionDto, StatsInput, StatsOutput, TokenLookupDto, TranscriptDocumentDto,
     TranscriptResourceDto, TranscriptSyncDto, ValidateDisambiguationResponseInputDto,
+    MAX_PLAYER_FIXTURE_BYTES,
 };
 
 #[wasm_bindgen_test]
@@ -62,6 +63,179 @@ fn exported_player_workspace_round_trips_cache_and_syncs_cues() {
         serde_wasm_bindgen::from_value(restored.view().expect("restored view must serialize"))
             .expect("restored view must deserialize");
     assert_eq!(restored_view.revision, 3);
+}
+
+#[wasm_bindgen_test]
+fn exported_demo_import_and_adjacent_navigation_use_browser_dto_shapes() {
+    let fixture = br#"{
+      "schema_version": 1,
+      "feed": {
+        "title": "Browser Demo",
+        "language": "en",
+        "description": "A synthetic browser fixture.",
+        "artwork_url": "/feed.png"
+      },
+      "episode": {
+        "publisher_guid": "browser-demo",
+        "title": "Browser Demo Episode",
+        "published_at": "2026-08-17T08:00:00Z",
+        "language": "en",
+        "enclosure_url": "/audio.mp3",
+        "enclosure_mime_type": "audio/mpeg",
+        "duration_ms": 4000,
+        "artwork_url": "/episode.png"
+      },
+      "transcript": {
+        "url": "/captions.vtt#en",
+        "mime_type": "text/vtt",
+        "format": "web_vtt",
+        "language": "en",
+        "relation": "captions",
+        "cues": [
+          {"source_cue_id":"one","start_ms":1000,"end_ms":2000,"text":"One."},
+          {"source_cue_id":"two","start_ms":3000,"end_ms":4000,"text":"Two."}
+        ]
+      }
+    }"#;
+    let mut workspace = EnsubPlayerWorkspace::new(Uint8Array::new_with_length(0))
+        .expect("empty player cache must open");
+    let opened = workspace
+        .import_demo_fixture(
+            "https://media.example.test/demo.json".to_string(),
+            Uint8Array::from(fixture.as_slice()),
+            1_787_000_000_000.0,
+        )
+        .expect("demo fixture must import");
+    assert!(Reflect::has(&opened, &"selectedTranscriptUrl".into())
+        .expect("selected transcript field must inspect"));
+    assert_eq!(
+        Reflect::get(&opened, &"transcriptState".into())
+            .expect("transcript state must inspect")
+            .as_string()
+            .as_deref(),
+        Some("ready")
+    );
+    let opened: EpisodeOpenDto =
+        serde_wasm_bindgen::from_value(opened).expect("ready DTO must deserialize");
+    assert_eq!(
+        opened.transcript_state,
+        ensub_wasm::TranscriptStateDto::Ready
+    );
+    assert_eq!(
+        opened
+            .transcript
+            .as_ref()
+            .map(|document| document.cues.len()),
+        Some(2)
+    );
+
+    let next_value = workspace.next_cue_at(0.0).expect("next cue must serialize");
+    assert!(Reflect::has(&next_value, &"cueIndex".into()).expect("cue index must inspect"));
+    assert!(Reflect::has(&next_value, &"startMs".into()).expect("cue start must inspect"));
+    let next: CueNavigationDto =
+        serde_wasm_bindgen::from_value(next_value).expect("next cue must deserialize");
+    assert_eq!(next.cue_index, 0);
+    assert_eq!(next.start_ms, 1_000);
+
+    let previous = workspace
+        .previous_cue_at(0.0)
+        .expect("empty previous boundary must serialize");
+    assert!(previous.is_null());
+
+    let error = workspace
+        .next_cue_at(-1.0)
+        .expect_err("negative playback position must fail");
+    assert_eq!(
+        Reflect::get(&error, &"code".into())
+            .expect("error code must inspect")
+            .as_string()
+            .as_deref(),
+        Some("invalid_argument")
+    );
+}
+
+#[wasm_bindgen_test]
+fn exported_demo_import_rejects_oversized_bytes_before_other_validation() {
+    let oversized_length = u32::try_from(MAX_PLAYER_FIXTURE_BYTES + 1)
+        .expect("fixture limit must fit a browser buffer length");
+    let mut workspace = EnsubPlayerWorkspace::new(Uint8Array::new_with_length(0))
+        .expect("empty player cache must open");
+
+    let error = workspace
+        .import_demo_fixture(
+            "https://media.example.test/demo.json".to_string(),
+            Uint8Array::new_with_length(oversized_length),
+            -1.0,
+        )
+        .expect_err("oversized fixture must fail before timestamp validation");
+
+    assert_eq!(
+        Reflect::get(&error, &"code".into())
+            .expect("error code must inspect")
+            .as_string()
+            .as_deref(),
+        Some("player_fixture_too_large")
+    );
+}
+
+#[wasm_bindgen_test]
+fn exported_demo_import_rolls_back_when_ready_dto_serialization_fails() {
+    let fixture = br#"{
+      "schema_version": 1,
+      "feed": {
+        "title": "Large Timestamp Demo",
+        "language": "en",
+        "description": "A synthetic browser fixture.",
+        "artwork_url": "/feed.png"
+      },
+      "episode": {
+        "publisher_guid": "large-timestamp-demo",
+        "title": "Large Timestamp Episode",
+        "published_at": "2026-08-17T08:00:00Z",
+        "language": "en",
+        "enclosure_url": "/audio.mp3",
+        "enclosure_mime_type": "audio/mpeg",
+        "duration_ms": 9007199254740992,
+        "artwork_url": "/episode.png"
+      },
+      "transcript": {
+        "url": "/captions.vtt",
+        "mime_type": "text/vtt",
+        "format": "web_vtt",
+        "language": "en",
+        "relation": "captions",
+        "cues": [
+          {
+            "source_cue_id": "large",
+            "start_ms": 0,
+            "end_ms": 9007199254740992,
+            "text": "Large timestamp."
+          }
+        ]
+      }
+    }"#;
+    let mut workspace = EnsubPlayerWorkspace::new(Uint8Array::new_with_length(0))
+        .expect("empty player cache must open");
+    let before = workspace.snapshot().expect("snapshot must encode").to_vec();
+
+    let error = workspace
+        .import_demo_fixture(
+            "https://media.example.test/demo.json".to_string(),
+            Uint8Array::from(fixture.as_slice()),
+            1.0,
+        )
+        .expect_err("unsafe JavaScript integer must fail DTO serialization");
+    assert_eq!(
+        Reflect::get(&error, &"code".into())
+            .expect("error code must inspect")
+            .as_string()
+            .as_deref(),
+        Some("serialization_failed")
+    );
+    assert_eq!(
+        workspace.snapshot().expect("snapshot must encode").to_vec(),
+        before
+    );
 }
 
 #[wasm_bindgen_test]

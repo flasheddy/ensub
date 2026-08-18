@@ -11,6 +11,7 @@ mod lexicon;
 mod morphology;
 mod parser;
 mod podcast_feed;
+mod podcast_fixture;
 mod transcript;
 mod transcript_context;
 
@@ -40,6 +41,9 @@ pub use parser::{
 pub use podcast_feed::{
     parse_podcast_feed, PodcastFeedIssue, PodcastFeedIssueDisposition, PodcastFeedParseError,
     PodcastFeedParseReport,
+};
+pub use podcast_fixture::{
+    parse_podcast_fixture, PodcastFixture, PodcastFixtureError, PODCAST_FIXTURE_SCHEMA_VERSION,
 };
 pub use transcript::{parse_transcript, TimestampEndpoint, TranscriptParseError};
 pub use transcript_context::{

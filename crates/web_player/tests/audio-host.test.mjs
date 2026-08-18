@@ -32,6 +32,24 @@ class FakeAudio extends EventTarget {
   }
 }
 
+test("timeupdate and seeked feed DOM audio timestamps directly to synchronization", () => {
+  const audio = new FakeAudio();
+  const syncs = [];
+  createAudioHost(audio, {
+    onEvent() {},
+    onSync: (positionMs) => syncs.push(positionMs),
+    requestFrame: () => 1,
+    cancelFrame() {},
+  });
+
+  audio.currentTime = 5.125;
+  audio.dispatchEvent(new Event("timeupdate"));
+  audio.currentTime = 9.5;
+  audio.dispatchEvent(new Event("seeked"));
+
+  expect(syncs).toEqual([5_125, 9_500]);
+});
+
 test("snippet mode suppresses normal sync and restores the active episode checkpoint", async () => {
   const audio = new FakeAudio();
   const mediaEvents = [];

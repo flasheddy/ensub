@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "feed": {
+    "title": "Synthetic Signal",
+    "language": "en",
+    "description": "Synthetic player fixture.",
+    "artwork_url": "./demo/cover.png"
+  },
+  "episode": {
+    "publisher_guid": "ensub-demo-episode-v1",
+    "title": "The Shape of a Listening Habit",
+    "published_at": "2026-08-17T08:00:00Z",
+    "language": "en",
+    "enclosure_url": "./demo.mp3",
+    "enclosure_mime_type": "audio/mpeg",
+    "duration_ms": 120000,
+    "artwork_url": "./demo/cover.png"
+  },
+  "transcript": {
+    "url": "./demo-fixture.json#transcript",
+    "mime_type": "text/vtt",
+    "format": "web_vtt",
+    "language": "en",
+    "relation": "captions",
+    "cues": [
+      {
+        "source_cue_id": "listening-begins",
+        "start_ms": 0,
+        "end_ms": 9000,
+        "text": "Listening begins before we decide to study."
+      },
+      {
+        "source_cue_id": "calm-voice",
+        "start_ms": 9000,
+        "end_ms": 19000,
+        "text": "A calm voice turns a passing moment into a clear sentence."
+      },
+      {
+        "source_cue_id": "words-and-sound",
+        "start_ms": 19000,
+        "end_ms": 30000,
+        "text": "The transcript keeps every word close to the sound."
+      },
+      {
+        "source_cue_id": "overlapping-ideas",
+        "start_ms": 29000,
+        "end_ms": 39000,
+        "text": "One idea can start before the earlier thought has ended."
+      },
+      {
+        "source_cue_id": "useful-word",
+        "start_ms": 42000,
+        "end_ms": 51000,
+        "text": "After a short pause, choose one useful word."
+      },
+      {
+        "source_cue_id": "quick-lookup",
+        "start_ms": 51000,
+        "end_ms": 61000,
+        "text": "A quick lookup gives the word meaning and pronunciation."
+      },
+      {
+        "source_cue_id": "fresh-context",
+        "start_ms": 61000,
+        "end_ms": 71000,
+        "text": "Capture the example while the context is still fresh."
+      },
+      {
+        "source_cue_id": "memory-signal",
+        "start_ms": 71000,
+        "end_ms": 81000,
+        "text": "Short reviews return when memory needs another signal."
+      },
+      {
+        "source_cue_id": "cue-navigation",
+        "start_ms": 81000,
+        "end_ms": 92000,
+        "text": "Move through each cue with the keyboard or a simple click."
+      },
+      {
+        "source_cue_id": "comfortable-speed",
+        "start_ms": 92000,
+        "end_ms": 103000,
+        "text": "Change the speed until every phrase feels comfortable."
+      },
+      {
+        "source_cue_id": "local-lesson",
+        "start_ms": 103000,
+        "end_ms": 112000,
+        "text": "The lesson stays on this device and works without a network."
+      },
+      {
+        "source_cue_id": "steady-practice",
+        "start_ms": 112000,
+        "end_ms": 120000,
+        "text": "Small listening habits grow stronger with steady practice."
+      }
+    ]
+  }
+}

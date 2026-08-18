@@ -7,6 +7,8 @@ import { bindLocalDataControls, createLocalDataManager } from "./local-data.js";
 import { createView } from "./view.js";
 import { createWorkspace, EnsubPlayerLearning, initializeWasm } from "./wasm-client.js";
 
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+
 async function boot() {
   const view = createView();
   const store = createIndexedDbStore();
@@ -32,7 +34,6 @@ async function boot() {
     addEventListener("storage", (event) => {
       if (event.key === LEARNING_STORAGE_KEY) controller.refreshDueCount();
     });
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {});
   } catch (error) {
     document.getElementById("network-state").textContent = "Workspace unavailable";
     document.getElementById("empty-state").querySelector("p").textContent = error?.message ?? "The local player could not start.";

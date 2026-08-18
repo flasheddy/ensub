@@ -475,7 +475,7 @@ fn parse_rss_item(
     })
 }
 
-fn episode_identity(
+pub(crate) fn episode_identity(
     source_url: &Url,
     publisher_guid: Option<&str>,
     enclosure_url: &str,

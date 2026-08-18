@@ -1,3 +1,5 @@
+import { resolvePlayerShortcut } from "./shortcuts.js";
+
 const $ = (id) => document.getElementById(id);
 
 function formatTime(seconds) {
@@ -16,7 +18,8 @@ function resourceLabel(resource, index) {
 
 export function createView() {
   const elements = {
-    audio: $("audio"), empty: $("empty-state"), workspace: $("episode-workspace"),
+    audio: $("audio"), reader: $("reader"), empty: $("empty-state"), workspace: $("episode-workspace"),
+    episodeContent: $("episode-content"),
     feedForm: $("feed-form"), feedUrl: $("feed-url"), feedLoad: $("feed-load"), feedStatus: $("feed-status"), demo: $("demo-button"),
     list: $("episode-list"), count: $("episode-count"), feedTitle: $("feed-title"),
     title: $("episode-title"), artwork: $("episode-artwork"), playerArtwork: $("player-artwork"),
@@ -58,6 +61,8 @@ export function createView() {
   let activeCueIndices = new Set();
   let anchorCueIndex = null;
   let scrolledCueIndex = null;
+  let programmaticReaderScroll = false;
+  let programmaticScrollTimer = 0;
 
   function modalControls(dialog) {
     return [...dialog.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])")]
@@ -103,6 +108,7 @@ export function createView() {
     });
   });
   document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) return;
     const modal = !elements.providerConsentDialog.hidden ? elements.providerConsentDialog
       : !elements.providerSettingsDialog.hidden ? elements.providerSettingsDialog
         : !elements.reviewDialog.hidden ? elements.reviewDialog : null;
@@ -110,6 +116,7 @@ export function createView() {
       event.preventDefault();
       if (modal === elements.reviewDialog) handlers.closeReview();
       else handlers.cancelDisambiguation();
+      return;
     } else if (event.key === "Tab" && modal) {
       const controls = modalControls(modal);
       const first = controls[0];
@@ -117,27 +124,51 @@ export function createView() {
       if (event.shiftKey && document.activeElement === first) { last?.focus(); event.preventDefault(); }
       else if (!event.shiftKey && document.activeElement === last) { first?.focus(); event.preventDefault(); }
     }
+    const visibleDialogs = [...document.querySelectorAll("[role='dialog']:not([hidden])")];
+    const activeDialog = visibleDialogs.find((dialog) => dialog !== elements.reviewDialog) ?? visibleDialogs[0];
+    const command = resolvePlayerShortcut(event, {
+      openDialog: activeDialog ? (activeDialog === elements.reviewDialog ? "review" : "other") : null,
+    });
+    if (command) {
+      event.preventDefault();
+      Promise.resolve(handlers.handleShortcut(command)).catch(() => {});
+    }
   });
   elements.transcript.addEventListener("click", (event) => {
     const token = event.target.closest(".transcript-token");
-    if (!token) return;
-    handlers.lookupToken({ cueId: token.dataset.cueId, tokenIndex: Number(token.dataset.tokenIndex) });
-  });
-  for (const event of ["wheel", "touchstart", "pointerdown"]) {
-    elements.transcript.addEventListener(event, () => handlers.manualFollow(), { passive: true });
-  }
-  elements.transcript.addEventListener("keydown", (event) => {
-    if (event.target.matches(".transcript-token") && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
-      const tokens = [...elements.transcript.querySelectorAll(".transcript-token")];
-      const index = tokens.indexOf(event.target);
-      const next = event.key === "ArrowRight" ? Math.min(tokens.length - 1, index + 1) : Math.max(0, index - 1);
-      tokens.forEach((token, tokenIndex) => { token.tabIndex = tokenIndex === next ? 0 : -1; });
-      tokens[next]?.focus();
-      event.preventDefault();
+    if (token) {
+      handlers.lookupToken({ cueId: token.dataset.cueId, tokenIndex: Number(token.dataset.tokenIndex) });
       return;
     }
-    if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) handlers.manualFollow();
+    const cue = event.target.closest(".cue");
+    const copy = event.target.closest(".cue-copy");
+    if (!cue || (copy && selectionIntersects(copy))) return;
+    handlers.seekSeconds(Number(cue.dataset.startMs) / 1000);
   });
+
+  function selectionIntersects(node) {
+    const selection = getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+    try { return selection.getRangeAt(0).intersectsNode(node); } catch { return false; }
+  }
+
+  function suspendFollowing() {
+    programmaticReaderScroll = false;
+    clearTimeout(programmaticScrollTimer);
+    handlers?.manualFollow();
+  }
+  elements.transcript.addEventListener("keydown", (event) => {
+    if (["PageUp", "PageDown", "Home", "End"].includes(event.key)) suspendFollowing();
+  });
+  for (const event of ["wheel", "touchstart"]) {
+    elements.reader.addEventListener(event, suspendFollowing, { passive: true });
+  }
+  elements.reader.addEventListener("pointerdown", (event) => {
+    if (event.target === elements.reader) suspendFollowing();
+  }, { passive: true });
+  elements.reader.addEventListener("scroll", () => {
+    if (!programmaticReaderScroll) handlers?.manualFollow();
+  }, { passive: true });
 
   function renderEpisodes(state) {
     const selected = state.workspace.selectedEpisodeId;
@@ -175,17 +206,16 @@ export function createView() {
       return;
     }
     const fragment = document.createDocumentFragment();
-    let hasTabStop = false;
     transcript.cues.forEach((cue, index) => {
       const row = document.createElement("div");
       row.className = "cue";
       row.id = `cue-${index}`;
+      row.dataset.startMs = String(cue.startMs);
       const seek = document.createElement("button");
       seek.type = "button";
       seek.className = "cue-seek";
       seek.textContent = formatTime(cue.startMs / 1000);
       seek.setAttribute("aria-label", `Seek to ${seek.textContent}`);
-      seek.addEventListener("click", () => handlers.seekSeconds(cue.startMs / 1000));
       const text = document.createElement("span");
       text.className = "cue-copy";
       let cursor = 0;
@@ -197,8 +227,6 @@ export function createView() {
         button.textContent = cue.text.slice(token.startUtf16, token.endUtf16);
         button.dataset.cueId = cue.id;
         button.dataset.tokenIndex = String(tokenIndex);
-        button.tabIndex = hasTabStop ? -1 : 0;
-        hasTabStop = true;
         text.append(button);
         cursor = token.endUtf16;
       });
@@ -383,7 +411,10 @@ export function createView() {
       const open = state.transcript.episode;
       const episode = open?.episode;
       elements.empty.hidden = Boolean(episode);
-      elements.workspace.hidden = !episode;
+      elements.episodeContent.hidden = !episode;
+      const hasFeeds = state.workspace.feeds.length > 0;
+      elements.demo.hidden = hasFeeds;
+      elements.demo.disabled = hasFeeds || state.feed.status === "loading";
       if (episode) {
         const feed = state.workspace.feeds.find((item) => item.sourceUrl === episode.identity.feedUrl);
         const artwork = episode.artworkUrl || feed?.artworkUrl || "./assets/demo/cover.png";
@@ -412,8 +443,9 @@ export function createView() {
         offline: "This transcript is not cached for offline use.", ready: "", cached: "",
       };
       elements.transcriptStatus.textContent = statusCopy[state.transcript.status] ?? "";
-      elements.follow.textContent = state.follow === "following" ? "Following" : "Return to current cue";
+      elements.follow.textContent = "Return to active cue";
       elements.follow.dataset.follow = state.follow;
+      elements.follow.hidden = state.follow === "following";
       elements.play.textContent = state.media.status === "playing" ? "Pause" : "Play";
       elements.play.setAttribute("aria-label", state.media.status === "playing" ? "Pause" : "Play");
       elements.elapsed.textContent = formatTime(state.media.currentTime);
@@ -422,6 +454,7 @@ export function createView() {
       elements.seek.disabled = !state.media.duration;
       elements.mute.textContent = state.media.muted ? "Unmute" : "Mute";
       elements.volume.value = String(state.media.volume);
+      elements.speed.value = String(state.media.rate);
       elements.network.textContent = state.capabilities.online ? "Local workspace" : "Offline · cached content only";
       renderLookup(state.lookup);
       renderReview(state.review);
@@ -444,7 +477,10 @@ export function createView() {
       if (follow === "following") {
         const index = sync.anchorCueIndex ?? sync.precedingCueIndex;
         if (index != null && (forceScroll || index !== scrolledCueIndex)) {
+          programmaticReaderScroll = true;
+          clearTimeout(programmaticScrollTimer);
           cueNodes[index]?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+          programmaticScrollTimer = setTimeout(() => { programmaticReaderScroll = false; }, 700);
           scrolledCueIndex = index;
         }
       }

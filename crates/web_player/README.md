@@ -2,7 +2,9 @@
 
 `web_player` is Ensub's installable, local-first podcast workspace. It is a
 static HTML/CSS/ES-module application backed by the `ensub-wasm` player cache.
-It remains separate from `web_sandbox`, the stable v0.1 core learning harness.
+The workspace itself is rendered on initial load rather than being hidden
+behind a landing page. It remains separate from `web_sandbox`, the stable v0.1
+core learning harness.
 
 ## Development
 
@@ -14,17 +16,76 @@ bun run verify:dist
 bun run test:browser
 ```
 
-`bun run serve` serves the built artifact on `http://127.0.0.1:4175`.
+`bun run serve` serves the built artifact on `http://127.0.0.1:4175`. Build
+before starting that preview. The local server uses the `audio/mpeg` content
+type and supports MP3 byte-range responses so seeking can be exercised locally.
 
 The build compiles `ensub-wasm`, generates CSS from `ensub-theme`, copies the
-versioned lexicon sidecars from `web_sandbox`, and generates a content-addressed
-service worker. Generated packages, distributions, dependencies, and test
-output are ignored.
+complete `assets` tree and the versioned lexicon sidecars from `web_sandbox`,
+and generates a content-addressed service worker. `bun run verify:dist` requires
+the demo fixture, demo MP3, `assets/lexicon-v1.manifest.json`, and compressed
+`assets/lexicon-v1.postcard.gz` sidecar, then verifies that every distribution
+file is present in the generated precache. Generated packages, distributions,
+dependencies, and test output are ignored.
+
+## Thin Host Boundary
+
+When the Rust workspace contains no feeds, the initial workspace shows **Load
+Demo Episode**. The host fetches at most 1 MiB from
+`assets/demo-fixture.json` and passes those bytes unchanged to
+`EnsubPlayerWorkspace.importDemoFixture`. The schema-v1 fixture points to the
+synthetic two-minute `assets/demo.mp3` and contains source-ordered, pre-parsed
+WebVTT cue data, including an overlap and a gap. Rust resolves relative HTTP(S)
+URLs, validates metadata, media duration, cue ordering and bounds, tokenizes cue
+text, derives stable identities, and atomically imports the feed, episode, and
+transcript. Import requires an empty feed collection; failure leaves the live
+workspace and persisted bytes unchanged. The demo action is hidden after any
+feed exists and becomes usable again after a failed empty-workspace import.
+
+Rust also owns cue synchronization and adjacent-cue policy. The DOM audio
+host rounds `timeupdate` and `seeked` timestamps to milliseconds and passes them
+directly to `syncAt`; animation frames provide additional samples during
+playback. The resulting DTO supplies all active cue indices, the anchor cue,
+and the preceding cue. `nextCueAt` and `previousCueAt` determine shortcut
+targets across overlaps, gaps, transcript boundaries, and times outside the
+transcript.
+
+JavaScript owns only browser effects: the DOM audio element, bounded fetches,
+IndexedDB and Web Locks, rendered highlight and ARIA state, scrolling, focus,
+and user-initiated seeks. All simultaneously active cues are highlighted.
+Following centers the Rust-selected anchor smoothly, or without animation when
+reduced motion is requested. Wheel, touch, or manual reader scrolling suspends
+following and exposes **Return to active cue**; following resumes only when that
+control is chosen. Clicking a cue row or its timestamp outside a token seeks to
+that cue's `startMs`. Selecting transcript text does not seek.
 
 Transcript text is rendered from Rust-produced cue-relative UTF-16 token spans.
 Selecting a token performs an offline WASM lookup; a separate Capture action
 persists the bounded cross-cue sentence, structured podcast provenance, logical
 audio slice, lexical data, and initial review state atomically.
+
+## Keyboard Commands
+
+Player shortcuts are global while the workspace canvas or a transcript token
+has focus:
+
+| Key | Action |
+|---|---|
+| `Space` | Play or pause |
+| `J` / Down Arrow | Seek to the next cue selected by Rust |
+| `K` / Up Arrow | Seek to the previous cue selected by Rust |
+| Left Arrow / Right Arrow | Skip backward or forward 5 seconds |
+| `[` / `]` | Step speed through 0.75x, 1x, 1.25x, 1.5x, 1.75x, and 2x |
+| `R` | Open or close Review |
+
+Native `Tab` and `Shift+Tab` order includes every transcript token. Press
+`Enter` on a focused token to open its offline lookup. Player shortcuts are
+ignored when a form field, select, ordinary button, link, or editable region
+has focus, when Alt/Ctrl/Meta/Shift is held, or while a non-review dialog is
+open. Only `R` remains active inside the Review dialog so it can close the
+session. Repeated `Space` and `R` keydown events are ignored.
+
+## Review
 
 Due cards open in a modal review session inside the player. Prompt DTOs contain
 only saved contexts and logical audio slices; lemma and definition data are
@@ -38,6 +99,15 @@ Ratings use the shared Rust SM-2 implementation. Each prompt carries an
 and rating reload that state, and rating also uses storage compare-and-swap, so
 another tab's update produces `review_conflict` and a queue refresh instead of
 an automatic retry.
+
+## Offline Installation
+
+Service-worker registration starts before WASM initialization. The generated
+worker precaches the application shell, WASM package, both lexicon sidecars,
+`assets/demo-fixture.json`, and the two-minute `assets/demo.mp3`. Once the worker
+has installed, the bundled demo and previously cached workspace data can reload
+offline. Remote feeds, transcripts, and enclosures remain available only when
+they have been cached or their origins are reachable and permit browser access.
 
 ## Storage And Fetching
 

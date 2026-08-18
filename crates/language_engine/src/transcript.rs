@@ -404,7 +404,10 @@ fn domain_cue_index(error: &MediaDomainError) -> Option<usize> {
     cue_id.strip_prefix("cue-")?.parse().ok()
 }
 
-fn transcript_tokens(cue_id: &str, text: &str) -> Result<Vec<TranscriptToken>, MediaDomainError> {
+pub(crate) fn transcript_tokens(
+    cue_id: &str,
+    text: &str,
+) -> Result<Vec<TranscriptToken>, MediaDomainError> {
     let mut tokens = Vec::new();
     for word in segment_text(text)
         .sentences

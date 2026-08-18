@@ -4,7 +4,7 @@ use core_engine::{
 };
 use language_engine::{
     parse_podcast_feed, parse_transcript, PodcastFeedIssue, PodcastFeedIssueDisposition,
-    PodcastFeedParseError, TranscriptParseError,
+    PodcastFeedParseError, PodcastFixtureError, TranscriptParseError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -17,6 +17,8 @@ pub enum IngestionError {
     Feed(#[from] PodcastFeedParseError),
     #[error(transparent)]
     Transcript(#[from] TranscriptParseError),
+    #[error(transparent)]
+    Fixture(#[from] PodcastFixtureError),
     #[error("parser produced invalid UTF-8 boundary {0}")]
     InvalidTextBoundary(usize),
 }
@@ -26,6 +28,7 @@ impl IngestionError {
         match self {
             Self::Feed(error) => error.code(),
             Self::Transcript(error) => error.code(),
+            Self::Fixture(error) => error.code(),
             Self::InvalidTextBoundary(_) => "transcript_invalid_text_boundary",
         }
     }
@@ -33,13 +36,14 @@ impl IngestionError {
     pub fn line(&self) -> Option<usize> {
         match self {
             Self::Transcript(error) => error.line(),
-            Self::Feed(_) | Self::InvalidTextBoundary(_) => None,
+            Self::Fixture(_) | Self::Feed(_) | Self::InvalidTextBoundary(_) => None,
         }
     }
 
     pub fn cue_index(&self) -> Option<usize> {
         match self {
             Self::Transcript(error) => error.cue_index(),
+            Self::Fixture(error) => error.cue_index(),
             Self::Feed(_) | Self::InvalidTextBoundary(_) => None,
         }
     }
@@ -54,7 +58,7 @@ impl IngestionError {
                 Some(*byte_offset)
             }
             Self::InvalidTextBoundary(byte_offset) => u64::try_from(*byte_offset).ok(),
-            Self::Feed(_) | Self::Transcript(_) => None,
+            Self::Feed(_) | Self::Transcript(_) | Self::Fixture(_) => None,
         }
     }
 }

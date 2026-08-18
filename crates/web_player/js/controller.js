@@ -2,9 +2,11 @@ import { createAudioHost } from "./audio-host.js";
 import { createOpenAiChatCompletionsAdapter } from "./disambiguation-adapter.js";
 import { createDisambiguationSettings } from "./disambiguation-settings.js";
 import { decodeUtf8, fetchBounded } from "./transport.js";
+import { stepPlaybackRate } from "./shortcuts.js";
 import { initialState, reduce } from "./state.js";
 
 const FEED_LIMIT = 5 * 1024 * 1024;
+const FIXTURE_LIMIT = 1024 * 1024;
 const TRANSCRIPT_LIMIT = 10 * 1024 * 1024;
 
 function errorState(error, offline = false) {
@@ -68,27 +70,46 @@ export function createController({
     }
   }
 
+  async function loadDemo() {
+    feedAbort?.abort();
+    const request = new AbortController();
+    feedAbort = request;
+    const generation = ++feedGeneration;
+    const fixtureUrl = new URL("./assets/demo-fixture.json", location.href).href;
+    dispatch({ type: "feed/requested", generation });
+    try {
+      const bytes = await fetchBounded(fixtureUrl, { limit: FIXTURE_LIMIT, signal: request.signal, fetchImpl });
+      const opened = await coordinator.mutate("importDemoFixture", fixtureUrl, bytes, clock());
+      dispatch({ type: "feed/succeeded", generation, workspace: coordinator.workspace.view() });
+      await activateEpisode(opened);
+    } catch (error) {
+      if (request.signal.aborted) return;
+      dispatch({ type: "feed/failed", generation, status: errorState(error, !navigator.onLine), message: error.message });
+    }
+  }
+
+  async function activateEpisode(opened) {
+    const episodeId = opened.episode.identity.internalId;
+    const generation = ++transcriptGeneration;
+    dispatch({ type: "transcript/requested", generation, episode: opened });
+    mediaGeneration += 1;
+    dispatch({ type: "media/source", generation: mediaGeneration, episodeId });
+    audio.load(opened.episode.enclosureUrl, mediaGeneration);
+    if (opened.transcript || opened.transcriptState !== "loading" || !opened.selectedTranscriptUrl) {
+      dispatch({ type: "transcript/ready", generation, episode: opened });
+      return;
+    }
+    await loadTranscript(opened, generation);
+  }
+
   async function selectEpisode(episodeId) {
     if (state.review.phase !== "closed") await closeReview();
     disambiguationAbort?.abort();
     dispatch({ type: "lookup/closed" });
     transcriptAbort?.abort();
-    const generation = ++transcriptGeneration;
     const opened = await coordinator.mutate("selectEpisode", episodeId);
     dispatch({ type: "workspace/updated", workspace: coordinator.workspace.view() });
-    dispatch({ type: "transcript/requested", generation, episode: opened });
-    mediaGeneration += 1;
-    dispatch({ type: "media/source", generation: mediaGeneration, episodeId });
-    audio.load(opened.episode.enclosureUrl, mediaGeneration);
-    if (opened.transcript) {
-      dispatch({ type: "transcript/ready", generation, episode: opened });
-      return;
-    }
-    if (opened.transcriptState !== "loading" || !opened.selectedTranscriptUrl) {
-      dispatch({ type: "transcript/ready", generation, episode: opened });
-      return;
-    }
-    await loadTranscript(opened, generation);
+    await activateEpisode(opened);
   }
 
   async function loadTranscript(opened, generation) {
@@ -371,9 +392,46 @@ export function createController({
     reviewSession += 1;
   }
 
+  function seekAdjacentCue(direction) {
+    const positionMs = Math.max(0, Math.round(view.elements.audio.currentTime * 1000));
+    try {
+      const target = direction > 0
+        ? coordinator.workspace.nextCueAt(positionMs)
+        : coordinator.workspace.previousCueAt(positionMs);
+      if (target) audio.seek(target.startMs / 1000);
+    } catch { /* Cue shortcuts are no-ops without a ready transcript or at a boundary. */ }
+  }
+
+  function handleShortcut(command) {
+    switch (command.type) {
+      case "toggle-playback":
+        return audio.toggle().catch(() => {});
+      case "next-cue":
+        seekAdjacentCue(1);
+        break;
+      case "previous-cue":
+        seekAdjacentCue(-1);
+        break;
+      case "skip":
+        audio.skip(command.seconds);
+        break;
+      case "change-rate": {
+        const rate = stepPlaybackRate(view.elements.audio.playbackRate, command.direction);
+        audio.setRate(rate);
+        dispatch({ type: "media/rate", rate: view.elements.audio.playbackRate });
+        break;
+      }
+      case "toggle-review":
+        return state.review.phase === "closed" ? openReview() : closeReview();
+      default:
+        break;
+    }
+    return undefined;
+  }
+
   const handlers = {
     loadFeed,
-    loadDemo: () => loadFeed(new URL("./assets/demo/feed.xml", location.href).href),
+    loadDemo,
     selectEpisode,
     selectTranscript,
     lookupToken,
@@ -395,6 +453,7 @@ export function createController({
     selectReviewContext,
     playReviewSnippet,
     closeReview,
+    handleShortcut,
     togglePlayback: () => audio.toggle().catch(() => {}), skip: (seconds) => audio.skip(seconds),
     seekFraction: (fraction) => audio.seek(fraction * (view.elements.audio.duration || 0)),
     seekSeconds: (seconds) => audio.seek(seconds), setRate: (rate) => audio.setRate(rate),

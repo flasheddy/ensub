@@ -1,18 +1,20 @@
 import { access, readdir, readFile, stat } from "node:fs/promises";
+import { Buffer } from "node:buffer";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const REQUIRED_FILES = [
   "index.html", "manifest.webmanifest", "theme.css", "styles.css", "service-worker.js",
   "assets/icons/icon-192.png", "assets/icons/icon-512.png", "assets/demo/cover.png",
-  "assets/demo/audio.wav", "assets/demo/feed.xml", "assets/demo/transcript.vtt",
+  "assets/demo-fixture.json", "assets/demo.mp3",
   "assets/lexicon-v1.manifest.json", "assets/lexicon-v1.postcard.gz",
   "js/app.js", "js/audio-host.js", "js/cache.js", "js/controller.js", "js/state.js",
-  "js/disambiguation-adapter.js", "js/disambiguation-settings.js", "js/snippet-runner.js",
+  "js/disambiguation-adapter.js", "js/disambiguation-settings.js", "js/shortcuts.js", "js/snippet-runner.js",
   "js/transport.js", "js/view.js", "js/wasm-client.js",
   "pkg/ensub_wasm.js", "pkg/ensub_wasm_bg.wasm",
 ];
 const TEXT_EXTENSIONS = new Set([".css", ".html", ".js", ".json", ".mjs", ".webmanifest", ".xml"]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export function findEmbeddedCredential(source) {
   const patterns = [
@@ -46,9 +48,59 @@ function precacheEntries(worker) {
   return JSON.parse(match[1]);
 }
 
+async function readPngDimensions(path, label) {
+  const image = await readFile(path);
+  const hasIhdr = image.length >= 24
+    && image.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+    && image.readUInt32BE(8) === 13
+    && image.toString("ascii", 12, 16) === "IHDR";
+  if (!hasIhdr) throw new Error(`${label} is not a valid PNG with an IHDR chunk`);
+  const width = image.readUInt32BE(16);
+  const height = image.readUInt32BE(20);
+  if (width === 0 || height === 0) throw new Error(`${label} has invalid PNG dimensions ${width}x${height}`);
+  return { width, height };
+}
+
+async function readManifest(root) {
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(join(root, "manifest.webmanifest"), "utf8"));
+  } catch (error) {
+    throw new Error(`manifest.webmanifest is not valid JSON: ${error.message}`);
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error("manifest.webmanifest must contain a JSON object");
+  }
+  for (const [field, expected] of [
+    ["start_url", "./"],
+    ["scope", "./"],
+    ["display", "standalone"],
+  ]) {
+    if (manifest[field] !== expected) throw new Error(`manifest.webmanifest ${field} must be ${expected}`);
+  }
+  const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
+  for (const [src, sizes] of [
+    ["./assets/icons/icon-192.png", "192x192"],
+    ["./assets/icons/icon-512.png", "512x512"],
+  ]) {
+    const declarations = icons.filter((icon) => icon && typeof icon === "object" && icon.src === src);
+    if (declarations.length === 0) throw new Error(`manifest.webmanifest must declare ${src}`);
+    if (!declarations.some((icon) => icon.sizes === sizes && icon.type === "image/png")) {
+      throw new Error(`manifest.webmanifest ${src} must declare sizes ${sizes} and type image/png`);
+    }
+    const label = src.replace(/^\.\//, "");
+    const { width, height } = await readPngDimensions(join(root, label), label);
+    if (`${width}x${height}` !== sizes) {
+      throw new Error(`${label} has PNG dimensions ${width}x${height}; expected ${sizes}`);
+    }
+  }
+  return manifest;
+}
+
 export async function verifyDist(dist) {
   const root = resolve(dist);
   for (const file of REQUIRED_FILES) await access(join(root, file));
+  await readManifest(root);
   const files = await listFiles(root);
   for (const file of files.filter((path) => TEXT_EXTENSIONS.has(extname(path)))) {
     const source = await readFile(file, "utf8");
@@ -63,6 +115,12 @@ export async function verifyDist(dist) {
     }
   }
   const cached = new Set(precacheEntries(await readFile(join(root, "service-worker.js"), "utf8")).map((entry) => entry.replace(/^\.\//, "")));
+  for (const file of [
+    "assets/demo-fixture.json", "assets/demo.mp3",
+    "assets/lexicon-v1.manifest.json", "assets/lexicon-v1.postcard.gz",
+  ]) {
+    if (!cached.has(file)) throw new Error(`service worker precache is missing required asset ${file}`);
+  }
   for (const file of files.map((path) => relative(root, path))) {
     if (file !== "service-worker.js" && !cached.has(file)) throw new Error(`service worker precache is missing ${file}`);
   }

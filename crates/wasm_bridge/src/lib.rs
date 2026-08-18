@@ -36,10 +36,10 @@ pub use learning::{
     LookupEntryDto, PlayerLearning, PlayerLearningError, TokenLookupDto,
 };
 pub use player::{
-    EpisodeOpenDto, PlayerWorkspace, PlayerWorkspaceDto, PlayerWorkspaceError,
+    CueNavigationDto, EpisodeOpenDto, PlayerWorkspace, PlayerWorkspaceDto, PlayerWorkspaceError,
     PreparePodcastCaptureInput, PreparedPodcastCaptureDto, TranscriptStateDto, TranscriptSyncDto,
-    MAX_PLAYER_CACHE_BYTES, MAX_PLAYER_CUES, MAX_PLAYER_FEED_BYTES, MAX_PLAYER_TRANSCRIPT_BYTES,
-    PLAYER_CACHE_FORMAT, PLAYER_CACHE_SCHEMA_VERSION,
+    MAX_PLAYER_CACHE_BYTES, MAX_PLAYER_CUES, MAX_PLAYER_FEED_BYTES, MAX_PLAYER_FIXTURE_BYTES,
+    MAX_PLAYER_TRANSCRIPT_BYTES, PLAYER_CACHE_FORMAT, PLAYER_CACHE_SCHEMA_VERSION,
 };
 pub use review::{
     AudioSlicePlaybackDto, DueCountDto, DueCountInputDto, DueReviewsDto, DueReviewsInputDto,
