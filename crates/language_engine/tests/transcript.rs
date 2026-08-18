@@ -1,5 +1,5 @@
 use core_engine::{TranscriptDocument, TranscriptFormat, TranscriptResource};
-use language_engine::parse_transcript;
+use language_engine::{parse_transcript, TimestampEndpoint, TranscriptParseError};
 
 fn resource(format: Option<TranscriptFormat>) -> TranscriptResource {
     let (url, mime_type) = match format {
@@ -41,9 +41,9 @@ NOTE generated fixture\r\nignored\r\n\r\n\
 intro\r\n00:00.500 --> 00:02.000 align:start\r\n\
 <v Narrator><b>Hello</b>, café &amp; tea.\r\nSecond line\r\n\r\n\
 00:02.000 --> 00:03.250\r\n<i>Done.</i>\r\n";
-    let srt = "1\n00:00:00,500 --> 00:00:02,000\n\
-<b>Hello</b>, café &amp; tea.\nSecond line\n\n\
-2\n00:00:02.000 --> 00:00:03.250\n<i>Done.</i>\n";
+    let srt = "\u{feff}1\r\n00:00:00,500 --> 00:00:02,000\r\n\
+<b>Hello</b>, café &amp; tea.\r\nSecond line\r\n\r\n\
+2\r\n00:00:02.000 --> 00:00:03.250\r\n<i>Done.</i>\r\n";
 
     let webvtt = parse_transcript(resource(Some(TranscriptFormat::WebVtt)), webvtt)
         .expect("WebVTT fixture must parse");
@@ -148,6 +148,24 @@ fn transcript_failures_report_stable_codes_and_locations() {
         assert_eq!(error.cue_index(), cue_index, "{case}");
         assert_eq!(error.line(), line, "{case}");
     }
+}
+
+#[test]
+fn malformed_srt_end_timestamp_reports_the_endpoint_and_source_location() {
+    let error = parse_transcript(
+        resource(Some(TranscriptFormat::Srt)),
+        "1\r\n00:00:00,000 --> not-a-time\r\nText\r\n",
+    )
+    .expect_err("an invalid SRT end timestamp must fail");
+
+    assert_eq!(
+        error,
+        TranscriptParseError::InvalidTimestamp {
+            cue_index: 0,
+            line: 2,
+            endpoint: TimestampEndpoint::End,
+        }
+    );
 }
 
 #[test]

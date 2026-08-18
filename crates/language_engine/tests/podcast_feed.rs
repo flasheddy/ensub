@@ -42,6 +42,24 @@ const ATOM: &str = r#"<?xml version="1.0"?>
   </entry>
 </feed>"#;
 
+fn internal_episode_id(source_url: &str, guid: Option<&str>, enclosure_url: &str) -> String {
+    let guid = guid
+        .map(|value| format!("<guid>{value}</guid>"))
+        .unwrap_or_default();
+    let rss = format!(
+        r#"<rss version="2.0"><channel><title>Identity Feed</title><item>
+          <title>Identity Episode</title>{guid}
+          <enclosure url="{enclosure_url}" type="audio/mpeg" />
+        </item></channel></rss>"#
+    );
+    parse_podcast_feed(source_url, rss.as_bytes())
+        .expect("identity fixture must parse")
+        .episodes[0]
+        .identity
+        .internal_id
+        .clone()
+}
+
 #[test]
 fn rss_feed_maps_portable_metadata_and_supported_transcripts() {
     let report = parse_podcast_feed(
@@ -85,6 +103,120 @@ fn rss_feed_maps_portable_metadata_and_supported_transcripts() {
     );
     assert_eq!(episode.transcript_resources[0].mime_type, "text/vtt");
     assert_eq!(episode.transcript_resources[1].format, None);
+}
+
+#[test]
+fn rss_transcript_discovery_accepts_bom_and_maps_all_supported_mime_aliases() {
+    let rss = br#"<rss version="2.0"
+      xmlns:captions="https://podcastindex.org/namespace/1.0"
+      xmlns:wrong="https://example.test/not-podcast">
+      <channel><title>Transcript Matrix</title><item>
+        <title>Matrix Episode</title>
+        <enclosure url="/audio.mp3" type="audio/mpeg" />
+        <captions:transcript url="/captions.vtt" type="Text/VTT; charset=utf-8"
+          language="en" rel="captions" />
+        <captions:transcript url="/captions-x.srt" type="application/x-subrip" />
+        <captions:transcript url="/captions-app.srt" type="APPLICATION/SRT; charset=UTF-8" />
+        <captions:transcript url="/captions-text.srt" type="text/srt" />
+        <captions:transcript url="/captions.json" type="application/json" />
+        <wrong:transcript url="/ignored.vtt" type="text/vtt" />
+      </item></channel>
+    </rss>"#;
+    let mut xml = b"\xef\xbb\xbf".to_vec();
+    xml.extend_from_slice(rss);
+
+    let report = parse_podcast_feed("https://media.example.test/feed.xml", &xml)
+        .expect("BOM-prefixed RSS must parse");
+    let resources = &report.episodes[0].transcript_resources;
+    let projection: Vec<(&str, &str, Option<TranscriptFormat>)> = resources
+        .iter()
+        .map(|resource| {
+            (
+                resource.url.as_str(),
+                resource.mime_type.as_str(),
+                resource.format,
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        projection,
+        vec![
+            (
+                "https://media.example.test/captions.vtt",
+                "text/vtt",
+                Some(TranscriptFormat::WebVtt),
+            ),
+            (
+                "https://media.example.test/captions-x.srt",
+                "application/x-subrip",
+                Some(TranscriptFormat::Srt),
+            ),
+            (
+                "https://media.example.test/captions-app.srt",
+                "application/srt",
+                Some(TranscriptFormat::Srt),
+            ),
+            (
+                "https://media.example.test/captions-text.srt",
+                "text/srt",
+                Some(TranscriptFormat::Srt),
+            ),
+            (
+                "https://media.example.test/captions.json",
+                "application/json",
+                None,
+            ),
+        ]
+    );
+    assert_eq!(resources[0].language.as_deref(), Some("en"));
+    assert_eq!(resources[0].relation.as_deref(), Some("captions"));
+}
+
+#[test]
+fn guid_episode_identity_is_canonical_deterministic_and_enclosure_independent() {
+    let canonical = internal_episode_id(
+        "https://media.example.test/feed.xml",
+        Some("episode-guid"),
+        "/audio.mp3",
+    );
+    let equivalent_source = internal_episode_id(
+        "https://MEDIA.example.test:443/feed.xml#fragment",
+        Some("episode-guid"),
+        "/different-audio.mp3",
+    );
+    let other_feed = internal_episode_id(
+        "https://other.example.test/feed.xml",
+        Some("episode-guid"),
+        "/audio.mp3",
+    );
+
+    assert_eq!(canonical, "c7855498-6ed7-560b-a83a-4700165dcb1f");
+    assert_eq!(equivalent_source, canonical);
+    assert_ne!(other_feed, canonical);
+}
+
+#[test]
+fn enclosure_episode_identity_is_the_deterministic_fallback_without_a_guid() {
+    let canonical = internal_episode_id(
+        "https://MEDIA.example.test:443/feed.xml#fragment",
+        None,
+        "/audio.mp3",
+    );
+    let repeated = internal_episode_id(
+        "https://media.example.test/feed.xml",
+        None,
+        "https://media.example.test/audio.mp3",
+    );
+    let changed_enclosure = internal_episode_id(
+        "https://media.example.test/feed.xml",
+        None,
+        "/different-audio.mp3",
+    );
+
+    assert_eq!(canonical, "e8981381-f90b-5b83-bf0f-c4dd4a93d146");
+    assert_eq!(repeated, canonical);
+    assert_ne!(changed_enclosure, canonical);
 }
 
 #[test]

@@ -355,8 +355,12 @@ fn exported_sandbox_round_trips_javascript_dtos_through_local_storage() {
 
 #[wasm_bindgen_test]
 fn exported_ingestion_functions_round_trip_dtos_and_structured_errors() {
-    let rss = br#"<rss version="2.0"><channel><title>Browser Feed</title><item>
+    let rss = br#"<rss version="2.0"
+      xmlns:p="https://podcastindex.org/namespace/1.0">
+      <channel><title>Browser Feed</title><item>
       <title>Browser Episode</title><enclosure url="/audio.mp3" type="audio/mpeg" />
+      <p:transcript url="/captions.srt" type="application/srt"
+        language="en" rel="captions" />
     </item></channel></rss>"#;
     let feed = parse_podcast_feed(
         "https://media.example.test/feed.xml".to_string(),
@@ -366,38 +370,64 @@ fn exported_ingestion_functions_round_trip_dtos_and_structured_errors() {
     let feed: PodcastFeedParseOutputDto =
         serde_wasm_bindgen::from_value(feed).expect("feed DTO must deserialize");
     assert_eq!(feed.episodes[0].title, "Browser Episode");
+    assert_eq!(feed.episodes[0].transcript_resources.len(), 1);
+    assert_eq!(
+        feed.episodes[0].transcript_resources[0].format,
+        Some(core_engine::TranscriptFormat::Srt)
+    );
+    assert_eq!(
+        feed.episodes[0].transcript_resources[0].language.as_deref(),
+        Some("en")
+    );
+    assert_eq!(
+        feed.episodes[0].transcript_resources[0].relation.as_deref(),
+        Some("captions")
+    );
 
     let resource = TranscriptResourceDto {
-        url: "https://media.example.test/captions.vtt".to_string(),
-        mime_type: "text/vtt".to_string(),
-        format: Some(core_engine::TranscriptFormat::WebVtt),
+        url: "https://media.example.test/captions.srt".to_string(),
+        mime_type: "application/srt".to_string(),
+        format: Some(core_engine::TranscriptFormat::Srt),
         language: Some("en".to_string()),
         relation: Some("captions".to_string()),
     };
     let resource = serde_wasm_bindgen::to_value(&resource).expect("resource must serialize");
     let transcript = parse_transcript(
         resource.clone(),
-        "WEBVTT\n\n00:00.000 --> 00:01.000\nBrowser text".to_string(),
+        "1\n00:00:00,000 --> 00:00:01,000\n🙂 (café),\nnaïve!".to_string(),
     )
     .expect("browser transcript must parse");
     let transcript: TranscriptDocumentDto =
         serde_wasm_bindgen::from_value(transcript).expect("transcript DTO must deserialize");
-    assert_eq!(transcript.cues[0].text, "Browser text");
+    let tokens: Vec<(&str, usize, usize)> = transcript.cues[0]
+        .tokens
+        .iter()
+        .map(|token| (token.surface.as_str(), token.start_utf16, token.end_utf16))
+        .collect();
+    assert_eq!(transcript.cues[0].text, "🙂 (café),\nnaïve!");
+    assert_eq!(tokens, [("café", 4, 8), ("naïve", 11, 16)]);
 
-    let error = parse_transcript(resource, "WEBVTT\n\nmissing timing".to_string())
+    let error = parse_transcript(resource, "1\n00:00:00,000 --> not-a-time\nText".to_string())
         .expect_err("malformed transcript must return an EnsubError");
+    assert_eq!(
+        Reflect::get(&error, &"name".into())
+            .expect("error name must exist")
+            .as_string()
+            .as_deref(),
+        Some("EnsubError")
+    );
     assert_eq!(
         Reflect::get(&error, &"code".into())
             .expect("error code must exist")
             .as_string()
             .as_deref(),
-        Some("transcript_missing_timing_line")
+        Some("transcript_invalid_timestamp")
     );
     assert_eq!(
         Reflect::get(&error, &"line".into())
             .expect("error line must exist")
             .as_f64(),
-        Some(3.0)
+        Some(2.0)
     );
     assert_eq!(
         Reflect::get(&error, &"cueIndex".into())
@@ -405,4 +435,22 @@ fn exported_ingestion_functions_round_trip_dtos_and_structured_errors() {
             .as_f64(),
         Some(0.0)
     );
+
+    let malformed_feed = br#"<rss><channel></rss>"#;
+    let error = parse_podcast_feed(
+        "https://media.example.test/feed.xml".to_string(),
+        Uint8Array::from(malformed_feed.as_slice()),
+    )
+    .expect_err("malformed feed XML must return an EnsubError");
+    assert_eq!(
+        Reflect::get(&error, &"code".into())
+            .expect("feed error code must exist")
+            .as_string()
+            .as_deref(),
+        Some("feed_malformed_xml")
+    );
+    assert!(Reflect::get(&error, &"byteOffset".into())
+        .expect("feed byte offset must exist")
+        .as_f64()
+        .is_some());
 }
