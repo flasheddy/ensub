@@ -140,6 +140,13 @@ highlight classes, scrolling, focus, and IndexedDB/Web Locks effects. The
 player envelope is deliberately separate from the learning snapshot so its
 schema can evolve independently from learning-storage migrations.
 
+M5.4 adds `preparePodcastCapture` to that workspace and a separate
+`EnsubPlayerLearning` facade. Rust revalidates the workspace revision, episode,
+transcript, cue, and token; reconstructs bounded cross-cue sentence context;
+performs the offline lexicon lookup; and constructs the provenance and logical
+audio slice. JavaScript only maps Rust UTF-16 spans into DOM nodes, supplies
+host media times, renders states, and coordinates explicit capture effects.
+
 `ensub-llm` is a separate, provider-neutral network adapter. No current
 application surface depends on it, so the bundled lexicon remains the default
 and the existing capture flows do not require network access.
@@ -172,6 +179,14 @@ snapshot. On `wasm32`, `LocalStorageBackend` persists it under
 `ensub.sandbox.v1`. The Ensub Core sandbox uses `Date.now()` for operation
 timestamps and takes a short-lived exclusive Web Lock around each mutation.
 Browsers without Web Locks open the WASM adapter read-only.
+
+Schema v2 adds `podcastContexts`, keyed by the generic context ID. A v1 snapshot
+is decoded and validated in memory without rewriting it; the first successful
+mutation writes one complete v2 snapshot. Failed serialization or storage
+writes leave the original bytes intact. `PodcastStorageAdapter` atomically
+stores the word, generic sentence, structured media context, and initial SM-2
+state. Word identity is deterministic by normalized lemma, while encounter
+identity includes episode, transcript, cue, and token span.
 
 Browser snapshot storage is not connected to native SQLite and has no
 synchronization or remote backend. Its static build rejects cross-origin

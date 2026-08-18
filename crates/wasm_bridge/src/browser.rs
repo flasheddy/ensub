@@ -4,8 +4,9 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    parse_podcast_feed_dto, parse_transcript_dto, CaptureParsedInput, DueReviewsInput,
-    IngestionError, LocalStorageBackend, ParseInput, PlayerWorkspace, PlayerWorkspaceError,
+    parse_podcast_feed_dto, parse_transcript_dto, CaptureParsedInput, CapturePodcastInput,
+    DueReviewsInput, IngestionError, LocalStorageBackend, ParseInput, PlayerLearning,
+    PlayerLearningError, PlayerWorkspace, PlayerWorkspaceError, PreparePodcastCaptureInput,
     ReviewInput, Sandbox, SandboxError, SnapshotAccess, SnapshotError, StatsInput,
     TranscriptResourceDto,
 };
@@ -13,6 +14,47 @@ use crate::{
 #[wasm_bindgen]
 pub struct EnsubSandbox {
     inner: Sandbox<LocalStorageBackend>,
+}
+
+#[wasm_bindgen]
+pub struct EnsubPlayerLearning {
+    inner: PlayerLearning<LocalStorageBackend>,
+}
+
+#[wasm_bindgen]
+impl EnsubPlayerLearning {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        lexicon_bytes: Uint8Array,
+        storage_key: String,
+        read_only: bool,
+    ) -> Result<EnsubPlayerLearning, JsValue> {
+        let access = if read_only {
+            SnapshotAccess::ReadOnly
+        } else {
+            SnapshotAccess::ReadWrite
+        };
+        let backend = LocalStorageBackend::open().map_err(|error| {
+            js_error(
+                "storage_unavailable",
+                &format!("browser storage failed: {error}"),
+            )
+        })?;
+        let inner = PlayerLearning::open(backend, storage_key, access, &lexicon_bytes.to_vec())
+            .map_err(learning_error)?;
+        Ok(Self { inner })
+    }
+
+    #[wasm_bindgen(js_name = lookupToken)]
+    pub fn lookup_token(&self, surface: String) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.lookup_token(&surface))
+    }
+
+    #[wasm_bindgen(js_name = capturePodcast)]
+    pub fn capture_podcast(&mut self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: CapturePodcastInput = from_js(input)?;
+        to_js(&self.inner.capture_podcast(input).map_err(learning_error)?)
+    }
 }
 
 #[wasm_bindgen]
@@ -151,6 +193,17 @@ impl EnsubPlayerWorkspace {
         to_js(&sync)
     }
 
+    #[wasm_bindgen(js_name = preparePodcastCapture)]
+    pub fn prepare_podcast_capture(&self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: PreparePodcastCaptureInput = from_js(input)?;
+        to_js(
+            &self
+                .inner
+                .prepare_podcast_capture(&input)
+                .map_err(player_error)?,
+        )
+    }
+
     pub fn snapshot(&self) -> Result<Uint8Array, JsValue> {
         let snapshot = self.inner.snapshot().map_err(player_error)?;
         Ok(Uint8Array::from(snapshot.as_slice()))
@@ -195,6 +248,25 @@ fn sandbox_error(error: SandboxError) -> JsValue {
         SandboxError::Storage(SnapshotError::Backend { .. }) => "storage_unavailable",
         SandboxError::Storage(_) => "storage_invalid",
         SandboxError::Core(_) => "scheduling_overflow",
+    };
+    js_error(code, &error.to_string())
+}
+
+fn learning_error(error: PlayerLearningError) -> JsValue {
+    let code = match &error {
+        PlayerLearningError::Lexicon(_) => "lexicon_invalid",
+        PlayerLearningError::UnknownToken => "lookup_unknown",
+        PlayerLearningError::AmbiguousToken => "lookup_ambiguous",
+        PlayerLearningError::InvalidLemma
+        | PlayerLearningError::InvalidTimestamp
+        | PlayerLearningError::InvalidCapture(_) => "invalid_argument",
+        PlayerLearningError::Storage(SnapshotError::ReadOnly) => "storage_read_only",
+        PlayerLearningError::Storage(SnapshotError::CorruptSnapshot(_)) => "storage_corrupt",
+        PlayerLearningError::Storage(SnapshotError::UnsupportedSchema { .. }) => {
+            "unsupported_schema"
+        }
+        PlayerLearningError::Storage(SnapshotError::Backend { .. }) => "storage_unavailable",
+        PlayerLearningError::Storage(_) => "storage_invalid",
     };
     js_error(code, &error.to_string())
 }

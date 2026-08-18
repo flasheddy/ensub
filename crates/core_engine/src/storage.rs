@@ -3,9 +3,9 @@ use std::error::Error;
 use chrono::{DateTime, Utc};
 
 use crate::{
-    Capture, CaptureResult, ContextRecord, LibraryPage, LibraryQuery, ReviewActivity, ReviewCard,
-    ReviewHistoryPage, ReviewHistoryQuery, ReviewState, ReviewStatistics, ReviewUpdate, WordId,
-    WordRecord,
+    Capture, CaptureResult, ContextRecord, LibraryPage, LibraryQuery, PodcastCapture,
+    PodcastCaptureResult, PodcastContextRecord, ReviewActivity, ReviewCard, ReviewHistoryPage,
+    ReviewHistoryQuery, ReviewState, ReviewStatistics, ReviewUpdate, WordId, WordRecord,
 };
 
 /// Persistence boundary implemented by platform-specific storage crates.
@@ -57,6 +57,16 @@ pub trait StorageAdapter {
     fn due_count(&self, as_of: DateTime<Utc>) -> Result<u64, Self::Error>;
 
     fn review_statistics(&self, as_of: DateTime<Utc>) -> Result<ReviewStatistics, Self::Error>;
+}
+
+/// Optional storage capability for atomic podcast encounters and their media provenance.
+pub trait PodcastStorageAdapter: StorageAdapter {
+    fn save_podcast_capture(
+        &mut self,
+        capture: &PodcastCapture,
+    ) -> Result<PodcastCaptureResult, Self::Error>;
+
+    fn podcast_contexts(&self, word_id: &WordId) -> Result<Vec<PodcastContextRecord>, Self::Error>;
 }
 
 /// Optional read model used by vocabulary-library and review-history surfaces.

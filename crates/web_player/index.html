@@ -57,7 +57,19 @@
           </div>
         </header>
         <div id="transcript-status" class="transcript-status" role="status"></div>
-        <div id="transcript" class="transcript" aria-label="Synchronized transcript" tabindex="0"></div>
+        <div class="reading-grid">
+          <div id="transcript" class="transcript" aria-label="Synchronized transcript" tabindex="0"></div>
+          <aside id="lookup-inspector" class="lookup-inspector" aria-label="Word lookup" hidden>
+            <div class="lookup-heading">
+              <div><span id="lookup-surface" class="lookup-surface"></span><span id="lookup-phonetic" class="lookup-phonetic"></span></div>
+              <button id="lookup-close" class="lookup-close" type="button" aria-label="Close lookup" title="Close lookup">×</button>
+            </div>
+            <div id="lookup-body" class="lookup-body" role="status"></div>
+            <label id="lookup-choice-label" class="lookup-choice-label" for="lookup-choice" hidden>Lemma</label>
+            <select id="lookup-choice" hidden></select>
+            <button id="capture-button" class="primary-command lookup-capture" type="button" hidden>Capture</button>
+          </aside>
+        </div>
       </section>
     </main>
 

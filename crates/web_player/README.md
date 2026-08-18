@@ -21,6 +21,11 @@ versioned lexicon sidecars from `web_sandbox`, and generates a content-addressed
 service worker. Generated packages, distributions, dependencies, and test
 output are ignored.
 
+Transcript text is rendered from Rust-produced cue-relative UTF-16 token spans.
+Selecting a token performs an offline WASM lookup; a separate Capture action
+persists the bounded cross-cue sentence, structured podcast provenance, logical
+audio slice, lexical data, and initial review state atomically.
+
 ## Storage And Fetching
 
 The player stores one opaque Rust snapshot at `snapshot-v1` in the
@@ -33,3 +38,8 @@ Feed and transcript requests are made directly by the browser. URLs must be
 credential-free HTTP(S), requests time out after 15 seconds, redirects are
 revalidated, and streamed response limits are enforced. Servers must permit
 browser access; the player does not route requests through a proxy.
+
+Learning captures share the existing `ensub.sandbox.v1` localStorage snapshot
+with the Core harness and use the `ensub.sandbox.storage.v1` Web Lock. Snapshot
+schema v1 is migrated in memory and becomes v2 only after a successful write.
+The player cache remains a separate IndexedDB envelope.

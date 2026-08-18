@@ -2,6 +2,15 @@
 
 All notable changes to Ensub are documented in this file.
 
+## Unreleased
+
+- Add offline transcript-token lookup, bounded cross-cue sentence capture,
+  structured podcast provenance, and non-destructive padded audio slices.
+- Add atomic multi-context lemma captures and recoverable browser snapshot
+  migration from schema v1 to v2.
+- Add keyboard-accessible player lookup and explicit capture states without
+  implicit network or LLM dispatch.
+
 ## 0.1.0-rc1 - 2026-08-17
 
 - Converge native CLI, TUI, COSMIC GUI, and applet workflows on the shared

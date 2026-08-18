@@ -3,10 +3,13 @@ use std::io;
 
 use chrono::{DateTime, Duration, Utc};
 use core_engine::{
-    initial_review_state, Capture, ContextId, ContextRecord, ReviewRating, ReviewUpdate,
-    StorageAdapter, WordId, WordRecord,
+    calculate_padded_audio_slice, initial_review_state, Capture, ContextId, ContextRecord,
+    CueRange, PodcastContextDraft, PodcastContextQuality, PodcastEpisodeProvenance,
+    PodcastFeedProvenance, PodcastStorageAdapter, ReviewRating, ReviewUpdate, StorageAdapter,
+    TranscriptFormat, TranscriptProvenance, TranscriptToken, WordId, WordRecord,
 };
 use ensub_wasm::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
+use language_engine::{podcast_capture_from_entry, Definition, LexiconEntry};
 
 #[derive(Default)]
 struct MemoryBackend {
@@ -74,6 +77,55 @@ fn storage(backend: MemoryBackend) -> SnapshotStorage<MemoryBackend> {
     SnapshotStorage::new(backend, "ensub.test", SnapshotAccess::ReadWrite)
 }
 
+fn podcast_capture(cue_id: &str) -> core_engine::PodcastCapture {
+    let range = CueRange::try_new(cue_id.to_string(), cue_id.to_string(), 1_000, 2_000)
+        .expect("fixture range must be valid");
+    let draft = PodcastContextDraft {
+        sentence: "We went home.".to_string(),
+        quality: PodcastContextQuality::CompleteSentence,
+        feed: PodcastFeedProvenance {
+            source_url: "https://example.test/feed.xml".to_string(),
+            title: "Test Feed".to_string(),
+        },
+        episode: PodcastEpisodeProvenance {
+            internal_id: "episode-1".to_string(),
+            publisher_guid: None,
+            title: "Episode".to_string(),
+            published_at: None,
+            enclosure_url: "https://example.test/audio.mp3".to_string(),
+        },
+        transcript: TranscriptProvenance {
+            url: "https://example.test/transcript.vtt".to_string(),
+            format: TranscriptFormat::WebVtt,
+            language: Some("en".to_string()),
+        },
+        selected_cue_id: cue_id.to_string(),
+        selected_token: TranscriptToken::try_new("went".to_string(), 3, 7)
+            .expect("fixture token must be valid"),
+        cue_range: range.clone(),
+        playback_position_ms: 1_500,
+        audio_slice: calculate_padded_audio_slice(
+            "https://example.test/audio.mp3".to_string(),
+            &range,
+            None,
+        )
+        .expect("fixture slice must be valid"),
+    };
+    podcast_capture_from_entry(
+        draft,
+        LexiconEntry {
+            lemma: "go".to_string(),
+            phonetic: "go".to_string(),
+            definitions: vec![Definition {
+                part_of_speech: "verb".to_string(),
+                text: "move".to_string(),
+            }],
+        },
+        timestamp(10),
+    )
+    .expect("fixture capture must build")
+}
+
 #[test]
 fn capture_round_trip_uses_versioned_snapshot_and_survives_reopen() {
     let mut first_session = storage(MemoryBackend::default());
@@ -95,7 +147,7 @@ fn capture_round_trip_uses_versioned_snapshot_and_survives_reopen() {
     assert!(saved.word_created);
     assert_eq!(saved.contexts_created, 1);
     assert_eq!(raw["format"], "ensub-browser-storage");
-    assert_eq!(raw["schemaVersion"], 1);
+    assert_eq!(raw["schemaVersion"], 2);
     assert_eq!(raw["revision"], 1);
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].word.lemma, "immersion");
@@ -252,14 +304,120 @@ fn corrupt_and_newer_snapshots_are_preserved_until_explicit_reset() {
         .values
         .insert(
             "ensub.test".to_string(),
-            r#"{"format":"ensub-browser-storage","schemaVersion":2,"revision":0,"words":{},"contexts":{},"reviewStates":{}}"#.to_string(),
+            r#"{"format":"ensub-browser-storage","schemaVersion":3,"revision":0,"words":{},"contexts":{},"reviewStates":{},"podcastContexts":{}}"#.to_string(),
         );
     assert!(matches!(
         storage.due_count(timestamp(10)),
-        Err(SnapshotError::UnsupportedSchema { actual: 2, .. })
+        Err(SnapshotError::UnsupportedSchema { actual: 3, .. })
     ));
     storage.reset().expect("explicit reset must clear storage");
     assert_eq!(storage.backend().value("ensub.test"), None);
+}
+
+#[test]
+fn v1_snapshot_is_read_without_rewrite_and_upgrades_on_successful_mutation() {
+    let raw_v1 = serde_json::json!({
+        "format": "ensub-browser-storage",
+        "schemaVersion": 1,
+        "revision": 7,
+        "words": {
+            "word-old": {
+                "id": "word-old", "term": "legacy", "lemma": "legacy",
+                "phonetic": "/legacy/", "definition": "noun: existing capture",
+                "createdAt": timestamp(8).timestamp_millis()
+            }
+        },
+        "contexts": {
+            "context-old": {
+                "id": "context-old", "wordId": "word-old",
+                "sentence": "A legacy sentence.", "source": "sandbox",
+                "capturedAt": timestamp(9).timestamp_millis()
+            }
+        },
+        "reviewStates": {
+            "word-old": {
+                "wordId": "word-old", "easeFactor": 2.5, "repetitions": 2,
+                "intervalDays": 6, "nextReviewAt": timestamp(10).timestamp_millis(),
+                "lastRating": 4
+            }
+        }
+    })
+    .to_string();
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    let mut storage = storage(backend);
+
+    assert_eq!(storage.due_count(timestamp(10)).expect("v1 must read"), 1);
+    assert_eq!(storage.backend().value("ensub.test"), Some(raw_v1.as_str()));
+
+    storage
+        .save_capture(&capture("word-a", "alpha", timestamp(10)))
+        .expect("first mutation must migrate");
+    let upgraded: serde_json::Value = serde_json::from_str(
+        storage
+            .backend()
+            .value("ensub.test")
+            .expect("v2 must exist"),
+    )
+    .expect("v2 must be JSON");
+    assert_eq!(upgraded["schemaVersion"], 2);
+    assert_eq!(upgraded["revision"], 8);
+    assert_eq!(upgraded["podcastContexts"], serde_json::json!({}));
+    let old = storage
+        .review_state(&WordId::new("word-old"))
+        .expect("migrated review must query")
+        .expect("migrated review must remain");
+    assert_eq!(old.repetitions, 2);
+    assert_eq!(old.interval_days, 6);
+    let cards = storage
+        .due_reviews(timestamp(10))
+        .expect("migrated card must query");
+    assert!(cards.iter().any(|card| card.word.lemma == "legacy"));
+}
+
+#[test]
+fn failed_v1_migration_preserves_exact_original_bytes() {
+    let raw_v1 = "{\n  \"format\": \"ensub-browser-storage\", \"schemaVersion\": 1, \"revision\": 0, \"words\": {}, \"contexts\": {}, \"reviewStates\": {}\n}";
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.to_string());
+    backend.fail_next_store = true;
+    let mut storage = storage(backend);
+
+    assert!(matches!(
+        storage.save_capture(&capture("word-a", "alpha", timestamp(10))),
+        Err(SnapshotError::Backend { .. })
+    ));
+    assert_eq!(storage.backend().value("ensub.test"), Some(raw_v1));
+}
+
+#[test]
+fn podcast_capture_is_atomic_idempotent_and_retains_multiple_encounters() {
+    let mut storage = storage(MemoryBackend::default());
+    let first = podcast_capture("cue-1");
+    let saved = storage
+        .save_podcast_capture(&first)
+        .expect("first encounter must save");
+    let retry = storage
+        .save_podcast_capture(&first)
+        .expect("retry must be idempotent");
+    let second = storage
+        .save_podcast_capture(&podcast_capture("cue-2"))
+        .expect("second encounter must save");
+    let contexts = storage
+        .podcast_contexts(&first.capture.word.id)
+        .expect("contexts must query");
+
+    assert!(saved.word_created);
+    assert!(saved.podcast_context_created);
+    assert!(!retry.word_created);
+    assert!(!retry.podcast_context_created);
+    assert!(!second.word_created);
+    assert!(second.podcast_context_created);
+    assert_eq!(contexts.len(), 2);
 }
 
 #[test]

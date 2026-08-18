@@ -1,15 +1,22 @@
 import { createWorkspaceCoordinator } from "./cache.js";
+import { loadLexicon } from "./assets.js";
 import { createController } from "./controller.js";
+import { createLearningClient } from "./learning-client.js";
 import { createView } from "./view.js";
-import { createWorkspace, initializeWasm } from "./wasm-client.js";
+import { createWorkspace, EnsubPlayerLearning, initializeWasm } from "./wasm-client.js";
 
 async function boot() {
   const view = createView();
   try {
     await initializeWasm();
+    const lexiconBytes = await loadLexicon({
+      manifestUrl: new URL("../assets/lexicon-v1.manifest.json", import.meta.url),
+      assetUrl: new URL("../assets/lexicon-v1.postcard.gz", import.meta.url),
+    });
+    const learning = createLearningClient({ LearningClass: EnsubPlayerLearning, lexiconBytes });
     const coordinator = createWorkspaceCoordinator({ workspaceFactory: createWorkspace });
     await coordinator.open();
-    const controller = createController({ coordinator, view });
+    const controller = createController({ coordinator, learning, view });
     await controller.start();
     coordinator.listen(async () => {
       await coordinator.reload();

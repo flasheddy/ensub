@@ -11,12 +11,15 @@ mod morphology;
 mod parser;
 mod podcast_feed;
 mod transcript;
+mod transcript_context;
 
 pub use browser_lexicon::{
     BrowserLexicon, BrowserLexiconAsset, BrowserLexiconError, BrowserLexiconForm,
     BROWSER_LEXICON_SCHEMA_VERSION,
 };
-pub use capture::{capture_from_candidate, capture_from_entry, word_id_for_lemma};
+pub use capture::{
+    capture_from_candidate, capture_from_entry, podcast_capture_from_entry, word_id_for_lemma,
+};
 #[cfg(feature = "document")]
 pub use document::{
     Block, BlockKind, Document, DocumentFormat, DocumentToken, InlineStyle, StyledRange,
@@ -32,3 +35,6 @@ pub use podcast_feed::{
     PodcastFeedParseReport,
 };
 pub use transcript::{parse_transcript, TimestampEndpoint, TranscriptParseError};
+pub use transcript_context::{
+    reconstruct_transcript_context, ReconstructedTranscriptContext, TranscriptContextError,
+};

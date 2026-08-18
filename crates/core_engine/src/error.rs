@@ -98,4 +98,37 @@ pub enum MediaDomainError {
         end_ms: u64,
         duration_ms: Option<u64>,
     },
+
+    #[error("podcast context sentence must not be empty")]
+    EmptyPodcastContextSentence,
+
+    #[error("podcast context selected cue identity must not be empty")]
+    EmptyPodcastSelectedCueId,
+
+    #[error("podcast context normalized lemma must not be empty")]
+    EmptyPodcastNormalizedLemma,
+
+    #[error("podcast context audio source does not match the episode enclosure")]
+    PodcastAudioSourceMismatch,
+
+    #[error("podcast context audio slice does not enclose its cue range")]
+    PodcastAudioSliceDoesNotCoverCueRange,
+
+    #[error("podcast capture requires exactly one generic context, got {actual}")]
+    InvalidPodcastCaptureContextCount { actual: usize },
+
+    #[error("podcast capture word identities do not match")]
+    PodcastCaptureWordMismatch,
+
+    #[error("podcast capture context identities do not match")]
+    PodcastCaptureContextIdMismatch,
+
+    #[error("podcast context sentence does not match its generic context")]
+    PodcastContextSentenceMismatch,
+
+    #[error("podcast context capture time does not match its generic context")]
+    PodcastContextTimestampMismatch,
+
+    #[error("podcast context lemma does not match its word record")]
+    PodcastContextLemmaMismatch,
 }

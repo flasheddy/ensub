@@ -4,10 +4,39 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.evaluate(async () => {
     indexedDB.deleteDatabase("ensub-player");
+    localStorage.removeItem("ensub.sandbox.v1");
     const registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all(registrations.map((registration) => registration.unregister()));
   });
   await page.reload();
+});
+
+test("token lookup is offline, keyboard reachable, and capture is idempotent", async ({ page }) => {
+  await page.getByRole("button", { name: "Load Demo Episode" }).click();
+  await expect(page.locator(".transcript-token")).not.toHaveCount(0);
+  await expect(page.locator(".cue-copy").first()).toHaveText("Listening begins before we decide to study.");
+
+  const token = page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first();
+  await token.focus();
+  await token.press("ArrowRight");
+  await expect(page.locator(".transcript-token").filter({ hasText: /^begins$/ }).first()).toBeFocused();
+  await token.click();
+  await expect(page.getByRole("complementary", { name: "Word lookup" })).toBeVisible();
+  await expect(page.locator("#lookup-surface")).toHaveText("listening");
+  await expect(page.locator(".lookup-definitions li").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(page.locator("#lookup-body")).toContainText("Saved as a new learning card");
+  await page.getByRole("button", { name: "Close lookup" }).click();
+  await token.click();
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(page.locator("#lookup-body")).toContainText("already captured");
+
+  await page.context().setOffline(true);
+  await page.reload();
+  await expect(page.locator(".cue")).toHaveCount(6);
+  await page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first().click();
+  await expect(page.locator("#lookup-surface")).toHaveText("listening");
 });
 
 test("demo episode plays, syncs transcript, follows manually, and persists", async ({ page, context }) => {

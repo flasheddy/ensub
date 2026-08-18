@@ -235,6 +235,23 @@ writes. The reset control deletes only the Core snapshot.
 No account or network service is used. After the service worker has installed,
 the complete harness can reload offline.
 
+## Podcast Transcript Lookup And Capture
+
+In Ensub Player, select a transcript word with a pointer or move between word
+targets with Left and Right Arrow. The lookup panel uses only the bundled
+offline lexicon and reports plainly when no entry exists. If a form maps to
+more than one local lemma, choose the intended lemma from the displayed list.
+
+Opening the panel is read-only. Choose **Capture** to save the lemma, ranked
+definitions, reconstructed sentence, podcast provenance, and logical padded
+audio range as one local operation. Repeating the same cue/token encounter does
+not create another learning card. A different cue or episode attaches another
+encounter to the same lemma and preserves its existing review schedule.
+
+Remote audio still requires the enclosure to be cached or reachable. Lookup,
+capture, and reopening previously cached transcripts work offline after the
+player service worker and lexicon assets have installed.
+
 ## Ensub Context
 
 Enter a target word or phrase, the sentence where it appeared, and optional

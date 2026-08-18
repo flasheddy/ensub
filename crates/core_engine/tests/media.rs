@@ -554,6 +554,7 @@ fn podcast_context_round_trip_preserves_lean_structured_provenance() {
             format: TranscriptFormat::WebVtt,
             language: Some("en".to_string()),
         },
+        selected_cue_id: "cue-0".to_string(),
         selected_token: TranscriptToken::try_new("synthetic".to_string(), 2, 11)
             .expect("test token must be valid"),
         normalized_lemma: "synthetic".to_string(),

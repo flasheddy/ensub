@@ -125,7 +125,10 @@ bun run test:browser
 ```
 
 The browser suite covers demo feed import, DOM audio controls, cue highlighting,
-manual-follow behavior, persistence, offline reload, and desktop/mobile layout.
+manual-follow behavior, Rust UTF-16 token rendering, keyboard lookup, explicit
+and repeated media capture, persistence, offline reload, and desktop/mobile
+layout. WASM storage tests also cover v1-to-v2 migration, exact-byte recovery
+after failed writes, unknown lookup, and multi-context lemma association.
 
 ## Ensub Core Offline Sandbox
 

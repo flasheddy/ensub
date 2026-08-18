@@ -10,6 +10,7 @@ export function initialState() {
     },
     sync: { activeCueIndices: [], anchorCueIndex: null, precedingCueIndex: null },
     follow: "following",
+    lookup: { status: "closed", selection: null, prepared: null, result: null, message: "" },
   };
 }
 
@@ -54,6 +55,18 @@ export function reduce(state, action) {
       return state.follow === "manual" ? state : { ...state, follow: "manual" };
     case "follow/resume":
       return { ...state, follow: "following" };
+    case "lookup/requested":
+      return { ...state, lookup: { status: "pending", selection: action.selection, prepared: null, result: null, message: "" } };
+    case "lookup/resolved":
+      return { ...state, lookup: { ...state.lookup, status: action.result.status, prepared: action.prepared, result: action.result, message: "" } };
+    case "lookup/failed":
+      return { ...state, lookup: { ...state.lookup, status: "failed", message: action.message } };
+    case "lookup/capturing":
+      return { ...state, lookup: { ...state.lookup, status: "capturing", message: "" } };
+    case "lookup/captured":
+      return { ...state, lookup: { ...state.lookup, status: action.result.status, message: "", capture: action.result } };
+    case "lookup/closed":
+      return { ...state, lookup: initialState().lookup };
     default:
       return state;
   }

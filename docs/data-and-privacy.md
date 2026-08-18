@@ -108,12 +108,24 @@ resources, and parsed transcript cues in one opaque Rust snapshot in the
 browser's `ensub-player` IndexedDB database. Audio is streamed and is not added
 to this snapshot. Playback position, rate, and volume are not persisted.
 
+An explicit transcript-token capture stores its normalized lemma, sentence,
+feed and episode identity, publication metadata when available, enclosure and
+transcript URLs, cue IDs, selected token span, capture playback position, host
+timestamp, and padded logical audio range in the local learning snapshot under
+`ensub.sandbox.v1`. The range references the original enclosure; Ensub does not
+copy, record, or transcode audio. Opening a lookup does not write data, and no
+lookup or capture automatically contacts an LLM or dictionary service.
+
 Feed and transcript requests connect directly from the browser to the resource
 host. Browser CORS and network policy apply. The player has no implicit proxy
 and does not send feed URLs, query strings, transcript contents, or cache
 contents to an Ensub service. The installed application shell, WASM module,
 icons, demo media, and versioned lexicon sidecars are available offline; remote
 audio and transcripts must already be cached or reachable.
+
+Learning snapshot v1 data migrates forward in memory. Ensub writes schema v2
+only after a complete successful mutation; corrupt, newer, or failed-migration
+snapshots remain unchanged so reset or future recovery remains possible.
 
 ## Ensub Context Storage
 

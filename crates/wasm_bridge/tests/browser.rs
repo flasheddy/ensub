@@ -8,9 +8,11 @@ use language_engine::{
 use wasm_bindgen_test::*;
 
 use ensub_wasm::{
-    parse_podcast_feed, parse_transcript, CaptureParsedInput, EnsubPlayerWorkspace, EnsubSandbox,
-    EpisodeOpenDto, ParseInput, ParseOutput, PlayerWorkspaceDto, PodcastFeedParseOutputDto,
-    StatsInput, StatsOutput, TranscriptDocumentDto, TranscriptResourceDto, TranscriptSyncDto,
+    parse_podcast_feed, parse_transcript, CaptureParsedInput, CapturePodcastInput,
+    CapturePodcastOutput, CapturePodcastStatus, EnsubPlayerLearning, EnsubPlayerWorkspace,
+    EnsubSandbox, EpisodeOpenDto, ParseInput, ParseOutput, PlayerWorkspaceDto,
+    PodcastFeedParseOutputDto, PreparePodcastCaptureInput, PreparedPodcastCaptureDto, StatsInput,
+    StatsOutput, TokenLookupDto, TranscriptDocumentDto, TranscriptResourceDto, TranscriptSyncDto,
 };
 
 #[wasm_bindgen_test]
@@ -57,6 +59,88 @@ fn exported_player_workspace_round_trips_cache_and_syncs_cues() {
         serde_wasm_bindgen::from_value(restored.view().expect("restored view must serialize"))
             .expect("restored view must deserialize");
     assert_eq!(restored_view.revision, 3);
+}
+
+#[wasm_bindgen_test]
+fn exported_player_lookup_and_capture_flow_is_offline_and_atomic() {
+    let key = "ensub.player-learning-browser-test.v2";
+    let storage = web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .expect("browser test requires localStorage");
+    storage.remove_item(key).expect("fixture must reset");
+    let rss = br#"<rss version="2.0"><channel><title>Player</title><item>
+      <guid>player-episode</guid><title>Player Episode</title>
+      <enclosure url="https://media.example.test/audio.mp3" type="audio/mpeg" />
+      <podcast:transcript xmlns:podcast="https://podcastindex.org/namespace/1.0"
+        url="https://media.example.test/captions.vtt" type="text/vtt" language="en" />
+    </item></channel></rss>"#;
+    let mut workspace =
+        EnsubPlayerWorkspace::new(Uint8Array::new_with_length(0)).expect("workspace must open");
+    let view: PlayerWorkspaceDto = serde_wasm_bindgen::from_value(
+        workspace
+            .import_feed(
+                "https://media.example.test/feed.xml".to_string(),
+                Uint8Array::from(rss.as_slice()),
+                1.0,
+            )
+            .expect("feed must import"),
+    )
+    .expect("view must decode");
+    let episode_id = view.episodes[0].identity.internal_id.clone();
+    workspace
+        .select_episode(episode_id.clone())
+        .expect("episode must select");
+    workspace
+        .cache_transcript(
+            episode_id.clone(),
+            "https://media.example.test/captions.vtt".to_string(),
+            "WEBVTT\n\n00:01.000 --> 00:02.000\nImmersion works.".to_string(),
+            2.0,
+        )
+        .expect("transcript must cache");
+    let prepared: PreparedPodcastCaptureDto = serde_wasm_bindgen::from_value(
+        workspace
+            .prepare_podcast_capture(
+                serde_wasm_bindgen::to_value(&PreparePodcastCaptureInput {
+                    revision: 3,
+                    episode_id,
+                    transcript_url: "https://media.example.test/captions.vtt".to_string(),
+                    cue_id: "cue-0".to_string(),
+                    token_index: 0,
+                    playback_position_ms: 1_500,
+                    duration_ms: Some(2_000),
+                })
+                .expect("input must encode"),
+            )
+            .expect("capture must prepare"),
+    )
+    .expect("prepared capture must decode");
+    let bytes = lexicon_bytes();
+    let mut learning =
+        EnsubPlayerLearning::new(Uint8Array::from(bytes.as_slice()), key.to_string(), false)
+            .expect("learning runtime must open");
+    let lookup: TokenLookupDto = serde_wasm_bindgen::from_value(
+        learning
+            .lookup_token(prepared.surface.clone())
+            .expect("lookup must execute"),
+    )
+    .expect("lookup must decode");
+    assert!(matches!(lookup, TokenLookupDto::Found { .. }));
+    let captured: CapturePodcastOutput = serde_wasm_bindgen::from_value(
+        learning
+            .capture_podcast(
+                serde_wasm_bindgen::to_value(&CapturePodcastInput {
+                    draft: prepared.draft,
+                    selected_lemma: None,
+                    captured_at_ms: 1_755_244_800_000,
+                })
+                .expect("capture input must encode"),
+            )
+            .expect("capture must save"),
+    )
+    .expect("capture output must decode");
+    assert_eq!(captured.status, CapturePodcastStatus::CreatedCard);
+    storage.remove_item(key).expect("fixture must clean up");
 }
 
 wasm_bindgen_test_configure!(run_in_browser);

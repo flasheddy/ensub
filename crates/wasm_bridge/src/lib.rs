@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod ingestion;
+mod learning;
 mod player;
 mod sandbox;
 mod storage;
@@ -22,17 +23,24 @@ pub use ingestion::{
     PodcastEpisodeDto, PodcastFeedDto, PodcastFeedIssueDto, PodcastFeedParseOutputDto,
     TranscriptCueDto, TranscriptDocumentDto, TranscriptResourceDto, TranscriptTokenDto,
 };
+pub use learning::{
+    CapturePodcastInput, CapturePodcastOutput, CapturePodcastStatus, LookupDefinitionDto,
+    LookupEntryDto, PlayerLearning, PlayerLearningError, TokenLookupDto,
+};
 pub use player::{
-    EpisodeOpenDto, PlayerWorkspace, PlayerWorkspaceDto, PlayerWorkspaceError, TranscriptStateDto,
-    TranscriptSyncDto, MAX_PLAYER_CACHE_BYTES, MAX_PLAYER_CUES, MAX_PLAYER_FEED_BYTES,
-    MAX_PLAYER_TRANSCRIPT_BYTES, PLAYER_CACHE_FORMAT, PLAYER_CACHE_SCHEMA_VERSION,
+    EpisodeOpenDto, PlayerWorkspace, PlayerWorkspaceDto, PlayerWorkspaceError,
+    PreparePodcastCaptureInput, PreparedPodcastCaptureDto, TranscriptStateDto, TranscriptSyncDto,
+    MAX_PLAYER_CACHE_BYTES, MAX_PLAYER_CUES, MAX_PLAYER_FEED_BYTES, MAX_PLAYER_TRANSCRIPT_BYTES,
+    PLAYER_CACHE_FORMAT, PLAYER_CACHE_SCHEMA_VERSION,
 };
 pub use storage::{
     SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage, SNAPSHOT_SCHEMA_VERSION,
 };
 
 #[cfg(target_arch = "wasm32")]
-pub use browser::{parse_podcast_feed, parse_transcript, EnsubPlayerWorkspace, EnsubSandbox};
+pub use browser::{
+    parse_podcast_feed, parse_transcript, EnsubPlayerLearning, EnsubPlayerWorkspace, EnsubSandbox,
+};
 
 #[cfg(target_arch = "wasm32")]
 pub use storage::{LocalStorageBackend, LocalStorageBackendError};

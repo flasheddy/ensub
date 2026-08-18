@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
 use core_engine::{
-    reconcile_episode_identity, PodcastEpisode, PodcastFeed, TranscriptDocument, TranscriptFormat,
-    TranscriptResource,
+    calculate_padded_audio_slice, reconcile_episode_identity, PodcastContextDraft, PodcastEpisode,
+    PodcastEpisodeProvenance, PodcastFeed, PodcastFeedProvenance, TranscriptDocument,
+    TranscriptFormat, TranscriptProvenance, TranscriptResource,
 };
-use language_engine::{parse_podcast_feed, parse_transcript};
+use language_engine::{parse_podcast_feed, parse_transcript, reconstruct_transcript_context};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -42,6 +43,14 @@ pub enum PlayerWorkspaceError {
     TranscriptNotFound,
     #[error("no transcript is selected")]
     NoTranscriptSelected,
+    #[error("lookup selection is stale")]
+    StaleSelection,
+    #[error("selected cue or token was not found")]
+    SelectionNotFound,
+    #[error("selected transcript has no supported format")]
+    UnsupportedTranscript,
+    #[error("capture media context is invalid: {0}")]
+    InvalidMedia(String),
     #[error(transparent)]
     Ingestion(#[from] IngestionError),
 }
@@ -60,6 +69,10 @@ impl PlayerWorkspaceError {
             Self::EpisodeNotFound => "player_episode_not_found",
             Self::TranscriptNotFound => "player_transcript_not_found",
             Self::NoTranscriptSelected => "player_transcript_not_selected",
+            Self::StaleSelection => "player_selection_stale",
+            Self::SelectionNotFound => "player_selection_not_found",
+            Self::UnsupportedTranscript => "player_transcript_unsupported",
+            Self::InvalidMedia(_) => "player_media_invalid",
             Self::Ingestion(error) => error.code(),
         }
     }
@@ -146,6 +159,25 @@ pub struct TranscriptSyncDto {
     pub active_cue_indices: Vec<u32>,
     pub anchor_cue_index: Option<u32>,
     pub preceding_cue_index: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparePodcastCaptureInput {
+    pub revision: u64,
+    pub episode_id: String,
+    pub transcript_url: String,
+    pub cue_id: String,
+    pub token_index: usize,
+    pub playback_position_ms: u64,
+    pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedPodcastCaptureDto {
+    pub surface: String,
+    pub draft: PodcastContextDraft,
 }
 
 impl PlayerWorkspace {
@@ -362,6 +394,69 @@ impl PlayerWorkspace {
             active_cue_indices,
             anchor_cue_index,
             preceding_cue_index,
+        })
+    }
+
+    pub fn prepare_podcast_capture(
+        &self,
+        input: &PreparePodcastCaptureInput,
+    ) -> Result<PreparedPodcastCaptureDto, PlayerWorkspaceError> {
+        if input.revision != self.cache.revision
+            || self.cache.selected_episode_id.as_deref() != Some(input.episode_id.as_str())
+            || self.cache.selected_transcript_url.as_deref() != Some(input.transcript_url.as_str())
+        {
+            return Err(PlayerWorkspaceError::StaleSelection);
+        }
+        let episode = find_episode(&self.cache, &input.episode_id)
+            .ok_or(PlayerWorkspaceError::StaleSelection)?;
+        let feed = self
+            .cache
+            .feeds
+            .get(&episode.identity.feed_url)
+            .ok_or(PlayerWorkspaceError::StaleSelection)?;
+        let transcript = self.selected_transcript()?;
+        let reconstructed =
+            reconstruct_transcript_context(&transcript.document, &input.cue_id, input.token_index)
+                .map_err(|_| PlayerWorkspaceError::SelectionNotFound)?;
+        let format = transcript
+            .document
+            .resource()
+            .format
+            .ok_or(PlayerWorkspaceError::UnsupportedTranscript)?;
+        let audio_slice = calculate_padded_audio_slice(
+            episode.enclosure_url.clone(),
+            &reconstructed.cue_range,
+            input.duration_ms,
+        )
+        .map_err(|error| PlayerWorkspaceError::InvalidMedia(error.to_string()))?;
+        let surface = reconstructed.selected_token.surface().to_string();
+        Ok(PreparedPodcastCaptureDto {
+            surface,
+            draft: PodcastContextDraft {
+                sentence: reconstructed.sentence,
+                quality: reconstructed.quality,
+                feed: PodcastFeedProvenance {
+                    source_url: feed.feed.source_url.clone(),
+                    title: feed.feed.title.clone(),
+                },
+                episode: PodcastEpisodeProvenance {
+                    internal_id: episode.identity.internal_id.clone(),
+                    publisher_guid: episode.publisher_guid.clone(),
+                    title: episode.title.clone(),
+                    published_at: episode.published_at,
+                    enclosure_url: episode.enclosure_url.clone(),
+                },
+                transcript: TranscriptProvenance {
+                    url: transcript.transcript_url.clone(),
+                    format,
+                    language: transcript.document.resource().language.clone(),
+                },
+                selected_cue_id: reconstructed.selected_cue_id,
+                selected_token: reconstructed.selected_token,
+                cue_range: reconstructed.cue_range,
+                playback_position_ms: input.playback_position_ms,
+                audio_slice,
+            },
         })
     }
 

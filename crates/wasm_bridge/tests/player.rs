@@ -1,4 +1,6 @@
-use ensub_wasm::{PlayerWorkspace, PlayerWorkspaceError, TranscriptStateDto};
+use ensub_wasm::{
+    PlayerWorkspace, PlayerWorkspaceError, PreparePodcastCaptureInput, TranscriptStateDto,
+};
 
 const FEED_URL: &str = "https://media.example.test/feed.xml";
 const TRANSCRIPT_URL: &str = "https://media.example.test/captions.vtt";
@@ -97,5 +99,57 @@ fn workspace_enforces_input_and_snapshot_limits() {
     assert!(matches!(
         PlayerWorkspace::open(&oversized_cache),
         Err(PlayerWorkspaceError::CacheTooLarge)
+    ));
+}
+
+#[test]
+fn workspace_prepares_cross_cue_provenance_and_rejects_stale_selection() {
+    let mut workspace = PlayerWorkspace::open(&[]).expect("empty cache must open");
+    let imported = workspace
+        .import_feed(FEED_URL, &feed(), 1)
+        .expect("feed must import");
+    let episode_id = imported.episodes[0].identity.internal_id.clone();
+    workspace
+        .select_episode(&episode_id)
+        .expect("episode must select");
+    workspace
+        .cache_transcript(
+            &episode_id,
+            TRANSCRIPT_URL,
+            "WEBVTT\n\n00:01.000 --> 00:02.000\nWe went\n\n00:02.000 --> 00:03.000\nhome.",
+            2,
+        )
+        .expect("transcript must cache");
+    let revision = workspace.view().revision;
+    let prepared = workspace
+        .prepare_podcast_capture(&PreparePodcastCaptureInput {
+            revision,
+            episode_id: episode_id.clone(),
+            transcript_url: TRANSCRIPT_URL.to_string(),
+            cue_id: "cue-0".to_string(),
+            token_index: 1,
+            playback_position_ms: 1_500,
+            duration_ms: Some(2_750),
+        })
+        .expect("selection must prepare");
+
+    assert_eq!(prepared.surface, "went");
+    assert_eq!(prepared.draft.sentence, "We went home.");
+    assert_eq!(prepared.draft.cue_range.first_cue_id(), "cue-0");
+    assert_eq!(prepared.draft.cue_range.last_cue_id(), "cue-1");
+    assert_eq!(prepared.draft.audio_slice.start_ms(), 500);
+    assert_eq!(prepared.draft.audio_slice.end_ms(), 2_750);
+
+    assert!(matches!(
+        workspace.prepare_podcast_capture(&PreparePodcastCaptureInput {
+            revision: revision - 1,
+            episode_id,
+            transcript_url: TRANSCRIPT_URL.to_string(),
+            cue_id: "cue-0".to_string(),
+            token_index: 1,
+            playback_position_ms: 1_500,
+            duration_ms: None,
+        }),
+        Err(PlayerWorkspaceError::StaleSelection)
     ));
 }

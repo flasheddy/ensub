@@ -25,6 +25,9 @@ export function createView() {
     follow: $("follow-button"), play: $("play-button"), back: $("back-button"),
     forward: $("forward-button"), seek: $("seek"), elapsed: $("elapsed"), remaining: $("remaining"),
     speed: $("speed"), mute: $("mute-button"), volume: $("volume"), network: $("network-state"),
+    inspector: $("lookup-inspector"), lookupSurface: $("lookup-surface"), lookupPhonetic: $("lookup-phonetic"),
+    lookupBody: $("lookup-body"), lookupChoice: $("lookup-choice"), lookupChoiceLabel: $("lookup-choice-label"),
+    capture: $("capture-button"), lookupClose: $("lookup-close"),
   };
   let cueNodes = [];
   let renderedTranscript = null;
@@ -41,10 +44,26 @@ export function createView() {
   elements.volume.addEventListener("input", () => handlers.setVolume(Number(elements.volume.value)));
   elements.follow.addEventListener("click", () => handlers.resumeFollow());
   elements.transcriptSelect.addEventListener("change", () => handlers.selectTranscript(elements.transcriptSelect.value));
+  elements.lookupClose.addEventListener("click", () => handlers.closeLookup());
+  elements.capture.addEventListener("click", () => handlers.captureLookup(elements.lookupChoice.value));
+  elements.transcript.addEventListener("click", (event) => {
+    const token = event.target.closest(".transcript-token");
+    if (!token) return;
+    handlers.lookupToken({ cueId: token.dataset.cueId, tokenIndex: Number(token.dataset.tokenIndex) });
+  });
   for (const event of ["wheel", "touchstart", "pointerdown"]) {
     elements.transcript.addEventListener(event, () => handlers.manualFollow(), { passive: true });
   }
   elements.transcript.addEventListener("keydown", (event) => {
+    if (event.target.matches(".transcript-token") && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      const tokens = [...elements.transcript.querySelectorAll(".transcript-token")];
+      const index = tokens.indexOf(event.target);
+      const next = event.key === "ArrowRight" ? Math.min(tokens.length - 1, index + 1) : Math.max(0, index - 1);
+      tokens.forEach((token, tokenIndex) => { token.tabIndex = tokenIndex === next ? 0 : -1; });
+      tokens[next]?.focus();
+      event.preventDefault();
+      return;
+    }
     if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) handlers.manualFollow();
   });
 
@@ -81,6 +100,7 @@ export function createView() {
       return;
     }
     const fragment = document.createDocumentFragment();
+    let hasTabStop = false;
     transcript.cues.forEach((cue, index) => {
       const row = document.createElement("div");
       row.className = "cue";
@@ -92,12 +112,81 @@ export function createView() {
       seek.setAttribute("aria-label", `Seek to ${seek.textContent}`);
       seek.addEventListener("click", () => handlers.seekSeconds(cue.startMs / 1000));
       const text = document.createElement("span");
-      text.textContent = cue.text;
+      text.className = "cue-copy";
+      let cursor = 0;
+      cue.tokens.forEach((token, tokenIndex) => {
+        text.append(document.createTextNode(cue.text.slice(cursor, token.startUtf16)));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "transcript-token";
+        button.textContent = cue.text.slice(token.startUtf16, token.endUtf16);
+        button.dataset.cueId = cue.id;
+        button.dataset.tokenIndex = String(tokenIndex);
+        button.tabIndex = hasTabStop ? -1 : 0;
+        hasTabStop = true;
+        text.append(button);
+        cursor = token.endUtf16;
+      });
+      text.append(document.createTextNode(cue.text.slice(cursor)));
       row.append(seek, text);
       fragment.append(row);
       cueNodes.push(row);
     });
     elements.transcript.replaceChildren(fragment);
+  }
+
+  function definitionList(entry) {
+    const list = document.createElement("ol");
+    list.className = "lookup-definitions";
+    for (const definition of entry.definitions) {
+      const item = document.createElement("li");
+      const part = document.createElement("span");
+      part.textContent = definition.partOfSpeech;
+      item.append(part, document.createTextNode(definition.text));
+      list.append(item);
+    }
+    return list;
+  }
+
+  function renderLookup(lookup) {
+    const open = lookup.status !== "closed";
+    elements.inspector.hidden = !open;
+    if (!open) return;
+    const result = lookup.result;
+    elements.lookupSurface.textContent = lookup.prepared?.surface ?? "Lookup";
+    elements.lookupPhonetic.textContent = "";
+    elements.lookupChoice.hidden = true;
+    elements.lookupChoiceLabel.hidden = true;
+    elements.capture.hidden = true;
+    elements.capture.disabled = false;
+    elements.lookupBody.replaceChildren();
+    if (lookup.status === "pending") elements.lookupBody.textContent = "Looking up locally…";
+    else if (lookup.status === "capturing") elements.lookupBody.textContent = "Saving capture…";
+    else if (lookup.status === "failed") elements.lookupBody.textContent = lookup.message;
+    else if (lookup.status === "unknown") elements.lookupBody.textContent = "No offline lexicon entry found.";
+    else if (["created_card", "added_encounter", "already_captured"].includes(lookup.status)) {
+      elements.lookupBody.textContent = {
+        created_card: "Saved as a new learning card.",
+        added_encounter: "Saved this encounter to the existing card.",
+        already_captured: "This encounter is already captured.",
+      }[lookup.status];
+    } else if (result?.status === "found") {
+      elements.lookupSurface.textContent = result.entry.lemma;
+      elements.lookupPhonetic.textContent = result.entry.phonetic;
+      elements.lookupBody.append(definitionList(result.entry));
+      elements.capture.hidden = false;
+    } else if (result?.status === "ambiguous") {
+      elements.lookupBody.textContent = "Choose the matching lemma.";
+      elements.lookupChoice.replaceChildren(...result.entries.map((entry) => {
+        const option = document.createElement("option");
+        option.value = entry.lemma;
+        option.textContent = `${entry.lemma} · ${entry.definitions[0]?.partOfSpeech ?? "entry"}`;
+        return option;
+      }));
+      elements.lookupChoice.hidden = false;
+      elements.lookupChoiceLabel.hidden = false;
+      elements.capture.hidden = false;
+    }
   }
 
   return {
@@ -148,6 +237,7 @@ export function createView() {
       elements.mute.textContent = state.media.muted ? "Unmute" : "Mute";
       elements.volume.value = String(state.media.volume);
       elements.network.textContent = state.capabilities.online ? "Local workspace" : "Offline · cached content only";
+      renderLookup(state.lookup);
     },
     updateSync(sync, follow) {
       const active = new Set(sync.activeCueIndices);

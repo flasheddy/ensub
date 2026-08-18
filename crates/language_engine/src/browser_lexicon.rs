@@ -69,26 +69,40 @@ impl BrowserLexicon {
     pub fn pronunciation_source(&self) -> &str {
         &self.asset.pronunciation_source
     }
+
+    pub fn lookup_entries(&self, surface: &str) -> Vec<LexiconEntry> {
+        let normalized = surface.trim().to_lowercase();
+        let start = self
+            .asset
+            .forms
+            .partition_point(|form| form.surface.as_str() < normalized.as_str());
+        let mut entries = Vec::new();
+        for form in self.asset.forms[start..]
+            .iter()
+            .take_while(|form| form.surface == normalized)
+        {
+            let Some(entry) = usize::try_from(form.entry_index)
+                .ok()
+                .and_then(|index| self.asset.entries.get(index))
+            else {
+                continue;
+            };
+            if !entries
+                .iter()
+                .any(|existing: &LexiconEntry| existing.lemma == entry.lemma)
+            {
+                entries.push(entry.clone());
+            }
+        }
+        entries
+    }
 }
 
 impl Lexicon for BrowserLexicon {
     type Error = Infallible;
 
     fn lookup(&self, surface: &str) -> Result<Option<LexiconEntry>, Self::Error> {
-        let normalized = surface.trim().to_lowercase();
-        let index = self
-            .asset
-            .forms
-            .partition_point(|form| form.surface.as_str() < normalized.as_str());
-        let found = self
-            .asset
-            .forms
-            .get(index)
-            .filter(|form| form.surface == normalized)
-            .and_then(|form| usize::try_from(form.entry_index).ok())
-            .and_then(|index| self.asset.entries.get(index))
-            .cloned();
-        Ok(found)
+        Ok(self.lookup_entries(surface).into_iter().next())
     }
 }
 

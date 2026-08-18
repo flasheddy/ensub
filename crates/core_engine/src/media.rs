@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashSet};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::domain::{Capture, ContextId, WordId};
 use crate::MediaDomainError;
 
 pub const AUDIO_SLICE_PADDING_MS: u64 = 500;
@@ -748,18 +749,189 @@ pub struct TranscriptProvenance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PodcastContextDraft {
+    pub sentence: String,
+    pub quality: PodcastContextQuality,
+    pub feed: PodcastFeedProvenance,
+    pub episode: PodcastEpisodeProvenance,
+    pub transcript: TranscriptProvenance,
+    pub selected_cue_id: String,
+    pub selected_token: TranscriptToken,
+    pub cue_range: CueRange,
+    pub playback_position_ms: u64,
+    pub audio_slice: AudioSlice,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "UncheckedPodcastContext")]
 pub struct PodcastContext {
     pub sentence: String,
     pub quality: PodcastContextQuality,
     pub feed: PodcastFeedProvenance,
     pub episode: PodcastEpisodeProvenance,
     pub transcript: TranscriptProvenance,
+    pub selected_cue_id: String,
     pub selected_token: TranscriptToken,
     pub normalized_lemma: String,
     pub cue_range: CueRange,
     pub playback_position_ms: u64,
     pub audio_slice: AudioSlice,
     pub captured_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+struct UncheckedPodcastContext {
+    sentence: String,
+    quality: PodcastContextQuality,
+    feed: PodcastFeedProvenance,
+    episode: PodcastEpisodeProvenance,
+    transcript: TranscriptProvenance,
+    selected_cue_id: String,
+    selected_token: TranscriptToken,
+    normalized_lemma: String,
+    cue_range: CueRange,
+    playback_position_ms: u64,
+    audio_slice: AudioSlice,
+    captured_at: DateTime<Utc>,
+}
+
+impl TryFrom<UncheckedPodcastContext> for PodcastContext {
+    type Error = MediaDomainError;
+
+    fn try_from(value: UncheckedPodcastContext) -> Result<Self, Self::Error> {
+        Self::try_from_draft(
+            PodcastContextDraft {
+                sentence: value.sentence,
+                quality: value.quality,
+                feed: value.feed,
+                episode: value.episode,
+                transcript: value.transcript,
+                selected_cue_id: value.selected_cue_id,
+                selected_token: value.selected_token,
+                cue_range: value.cue_range,
+                playback_position_ms: value.playback_position_ms,
+                audio_slice: value.audio_slice,
+            },
+            value.normalized_lemma,
+            value.captured_at,
+        )
+    }
+}
+
+impl PodcastContext {
+    pub fn try_from_draft(
+        mut draft: PodcastContextDraft,
+        normalized_lemma: String,
+        captured_at: DateTime<Utc>,
+    ) -> Result<Self, MediaDomainError> {
+        draft.sentence = draft.sentence.trim().to_string();
+        if draft.sentence.is_empty() {
+            return Err(MediaDomainError::EmptyPodcastContextSentence);
+        }
+        draft.selected_cue_id = draft.selected_cue_id.trim().to_string();
+        if draft.selected_cue_id.is_empty() {
+            return Err(MediaDomainError::EmptyPodcastSelectedCueId);
+        }
+        let normalized_lemma = normalized_lemma.trim().to_lowercase();
+        if normalized_lemma.is_empty() {
+            return Err(MediaDomainError::EmptyPodcastNormalizedLemma);
+        }
+        if draft.audio_slice.audio_source_url() != draft.episode.enclosure_url {
+            return Err(MediaDomainError::PodcastAudioSourceMismatch);
+        }
+        if draft.audio_slice.start_ms() > draft.cue_range.start_ms()
+            || draft.audio_slice.end_ms() < draft.cue_range.end_ms()
+        {
+            return Err(MediaDomainError::PodcastAudioSliceDoesNotCoverCueRange);
+        }
+
+        Ok(Self {
+            sentence: draft.sentence,
+            quality: draft.quality,
+            feed: draft.feed,
+            episode: draft.episode,
+            transcript: draft.transcript,
+            selected_cue_id: draft.selected_cue_id,
+            selected_token: draft.selected_token,
+            normalized_lemma,
+            cue_range: draft.cue_range,
+            playback_position_ms: draft.playback_position_ms,
+            audio_slice: draft.audio_slice,
+            captured_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PodcastContextRecord {
+    pub context_id: ContextId,
+    pub word_id: WordId,
+    pub context: PodcastContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "UncheckedPodcastCapture")]
+pub struct PodcastCapture {
+    pub capture: Capture,
+    pub podcast_context: PodcastContextRecord,
+}
+
+impl PodcastCapture {
+    pub fn try_new(
+        capture: Capture,
+        podcast_context: PodcastContextRecord,
+    ) -> Result<Self, MediaDomainError> {
+        if capture.contexts.len() != 1 {
+            return Err(MediaDomainError::InvalidPodcastCaptureContextCount {
+                actual: capture.contexts.len(),
+            });
+        }
+        let generic_context = &capture.contexts[0];
+        if capture.word.id != podcast_context.word_id
+            || capture.initial_review_state.word_id != capture.word.id
+            || generic_context.word_id != capture.word.id
+        {
+            return Err(MediaDomainError::PodcastCaptureWordMismatch);
+        }
+        if generic_context.id != podcast_context.context_id {
+            return Err(MediaDomainError::PodcastCaptureContextIdMismatch);
+        }
+        if generic_context.sentence != podcast_context.context.sentence {
+            return Err(MediaDomainError::PodcastContextSentenceMismatch);
+        }
+        if generic_context.captured_at != podcast_context.context.captured_at {
+            return Err(MediaDomainError::PodcastContextTimestampMismatch);
+        }
+        if capture.word.lemma.trim().to_lowercase() != podcast_context.context.normalized_lemma {
+            return Err(MediaDomainError::PodcastContextLemmaMismatch);
+        }
+
+        Ok(Self {
+            capture,
+            podcast_context,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct UncheckedPodcastCapture {
+    capture: Capture,
+    podcast_context: PodcastContextRecord,
+}
+
+impl TryFrom<UncheckedPodcastCapture> for PodcastCapture {
+    type Error = MediaDomainError;
+
+    fn try_from(value: UncheckedPodcastCapture) -> Result<Self, Self::Error> {
+        Self::try_new(value.capture, value.podcast_context)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PodcastCaptureResult {
+    pub word_created: bool,
+    pub contexts_created: u64,
+    pub podcast_context_created: bool,
 }
 
 #[cfg(test)]

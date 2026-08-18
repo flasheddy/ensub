@@ -3,8 +3,9 @@ use std::error::Error;
 
 use chrono::{DateTime, Utc};
 use core_engine::{
-    Capture, CaptureResult, ContextId, ContextRecord, IntervalDistribution, ReviewCard,
-    ReviewRating, ReviewState, ReviewStatistics, ReviewUpdate, StorageAdapter, WordId, WordRecord,
+    Capture, CaptureResult, ContextId, ContextRecord, IntervalDistribution, PodcastCapture,
+    PodcastCaptureResult, PodcastContextRecord, PodcastStorageAdapter, ReviewCard, ReviewRating,
+    ReviewState, ReviewStatistics, ReviewUpdate, StorageAdapter, WordId, WordRecord,
     MIN_EASE_FACTOR,
 };
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use thiserror::Error;
 use wasm_bindgen::JsCast;
 
 const SNAPSHOT_FORMAT: &str = "ensub-browser-storage";
-pub const SNAPSHOT_SCHEMA_VERSION: u16 = 1;
+pub const SNAPSHOT_SCHEMA_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapshotAccess {
@@ -154,32 +155,39 @@ impl<B: SnapshotBackend> SnapshotStorage<B> {
         }
     }
 
-    fn load_snapshot(&self) -> Result<SnapshotV1, SnapshotError> {
+    fn load_snapshot(&self) -> Result<SnapshotV2, SnapshotError> {
         let Some(raw) = self
             .backend
             .load(&self.key)
             .map_err(|error| SnapshotError::backend("load", error))?
         else {
-            return Ok(SnapshotV1::empty());
+            return Ok(SnapshotV2::empty());
         };
-        let snapshot: SnapshotV1 = serde_json::from_str(&raw)
+        let header: SnapshotHeader = serde_json::from_str(&raw)
             .map_err(|error| SnapshotError::CorruptSnapshot(error.to_string()))?;
-        if snapshot.format != SNAPSHOT_FORMAT {
+        if header.format != SNAPSHOT_FORMAT {
             return Err(SnapshotError::CorruptSnapshot(
                 "snapshot format identifier is invalid".to_string(),
             ));
         }
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
-            return Err(SnapshotError::UnsupportedSchema {
-                expected: SNAPSHOT_SCHEMA_VERSION,
-                actual: snapshot.schema_version,
-            });
-        }
+        let snapshot = match header.schema_version {
+            1 => serde_json::from_str::<SnapshotV1>(&raw)
+                .map(SnapshotV2::from)
+                .map_err(|error| SnapshotError::CorruptSnapshot(error.to_string()))?,
+            SNAPSHOT_SCHEMA_VERSION => serde_json::from_str::<SnapshotV2>(&raw)
+                .map_err(|error| SnapshotError::CorruptSnapshot(error.to_string()))?,
+            actual => {
+                return Err(SnapshotError::UnsupportedSchema {
+                    expected: SNAPSHOT_SCHEMA_VERSION,
+                    actual,
+                })
+            }
+        };
         validate_snapshot(&snapshot)?;
         Ok(snapshot)
     }
 
-    fn store_snapshot(&mut self, mut snapshot: SnapshotV1) -> Result<(), SnapshotError> {
+    fn store_snapshot(&mut self, mut snapshot: SnapshotV2) -> Result<(), SnapshotError> {
         self.ensure_writable()?;
         validate_snapshot(&snapshot)?;
         snapshot.revision = snapshot.revision.saturating_add(1);
@@ -192,7 +200,7 @@ impl<B: SnapshotBackend> SnapshotStorage<B> {
 
     fn mutate<T>(
         &mut self,
-        operation: impl FnOnce(&mut SnapshotV1) -> Result<T, SnapshotError>,
+        operation: impl FnOnce(&mut SnapshotV2) -> Result<T, SnapshotError>,
     ) -> Result<T, SnapshotError> {
         self.ensure_writable()?;
         let mut snapshot = self.load_snapshot()?;
@@ -387,6 +395,97 @@ impl<B: SnapshotBackend> StorageAdapter for SnapshotStorage<B> {
     }
 }
 
+impl<B: SnapshotBackend> PodcastStorageAdapter for SnapshotStorage<B> {
+    fn save_podcast_capture(
+        &mut self,
+        capture: &PodcastCapture,
+    ) -> Result<PodcastCaptureResult, Self::Error> {
+        validate_capture(&capture.capture)?;
+        let context_id = capture.podcast_context.context_id.as_str().to_string();
+        self.mutate(|snapshot| {
+            ensure_lemma_available(
+                snapshot,
+                capture.capture.word.id.as_str(),
+                &capture.capture.word.lemma,
+            )?;
+            if let Some(existing) = snapshot.podcast_contexts.get(&context_id) {
+                let mut comparable = capture.podcast_context.clone();
+                comparable.context.captured_at = existing.context.captured_at;
+                comparable.context.playback_position_ms = existing.context.playback_position_ms;
+                if existing != &comparable {
+                    return Err(SnapshotError::PodcastContextConflict(context_id));
+                }
+            }
+            if let Some(existing) = snapshot.contexts.get(&context_id) {
+                let expected = &capture.capture.contexts[0];
+                let mut comparable = StoredContextV1::from(expected);
+                comparable.captured_at = existing.captured_at;
+                if existing != &comparable {
+                    return Err(SnapshotError::PodcastContextConflict(context_id));
+                }
+            }
+
+            let word_created = match snapshot.words.get_mut(capture.capture.word.id.as_str()) {
+                Some(existing) => {
+                    existing.lemma = capture.capture.word.lemma.clone();
+                    existing.phonetic = capture.capture.word.phonetic.clone();
+                    existing.definition = capture.capture.word.definition.clone();
+                    false
+                }
+                None => {
+                    snapshot.words.insert(
+                        capture.capture.word.id.as_str().to_string(),
+                        StoredWordV1::from(&capture.capture.word),
+                    );
+                    true
+                }
+            };
+            let context_created = !snapshot.contexts.contains_key(&context_id);
+            if context_created {
+                snapshot.contexts.insert(
+                    context_id.clone(),
+                    StoredContextV1::from(&capture.capture.contexts[0]),
+                );
+            }
+            let podcast_context_created = !snapshot.podcast_contexts.contains_key(&context_id);
+            if podcast_context_created {
+                snapshot
+                    .podcast_contexts
+                    .insert(context_id, capture.podcast_context.clone());
+            }
+            snapshot
+                .review_states
+                .entry(capture.capture.word.id.as_str().to_string())
+                .or_insert_with(|| {
+                    StoredReviewStateV1::from(&capture.capture.initial_review_state)
+                });
+            Ok(PodcastCaptureResult {
+                word_created,
+                contexts_created: u64::from(context_created),
+                podcast_context_created,
+            })
+        })
+    }
+
+    fn podcast_contexts(&self, word_id: &WordId) -> Result<Vec<PodcastContextRecord>, Self::Error> {
+        let snapshot = self.load_snapshot()?;
+        let mut contexts = snapshot
+            .podcast_contexts
+            .values()
+            .filter(|record| record.word_id == *word_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        contexts.sort_by(|left, right| {
+            right
+                .context
+                .captured_at
+                .cmp(&left.context.captured_at)
+                .then_with(|| left.context_id.as_str().cmp(right.context_id.as_str()))
+        });
+        Ok(contexts)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SnapshotError {
     #[error("browser storage is read-only in this tab")]
@@ -410,11 +509,20 @@ pub enum SnapshotError {
     #[error("capture records do not refer to the same word")]
     InvalidCapture,
 
+    #[error("podcast capture records are inconsistent")]
+    InvalidPodcastCapture,
+
+    #[error("podcast context {0} conflicts with an existing encounter")]
+    PodcastContextConflict(String),
+
     #[error("review replacement refers to a different word")]
     InvalidReviewReplacement,
 
     #[error("browser snapshot refers to missing word {0}")]
     MissingWord(String),
+
+    #[error("browser snapshot refers to missing context {0}")]
+    MissingContext(String),
 
     #[error("browser snapshot contains duplicate lemma {0}")]
     DuplicateLemma(String),
@@ -439,6 +547,13 @@ impl SnapshotError {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotHeader {
+    format: String,
+    schema_version: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SnapshotV1 {
     format: String,
@@ -449,7 +564,33 @@ struct SnapshotV1 {
     review_states: BTreeMap<String, StoredReviewStateV1>,
 }
 
-impl SnapshotV1 {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SnapshotV2 {
+    format: String,
+    schema_version: u16,
+    revision: u64,
+    words: BTreeMap<String, StoredWordV1>,
+    contexts: BTreeMap<String, StoredContextV1>,
+    review_states: BTreeMap<String, StoredReviewStateV1>,
+    podcast_contexts: BTreeMap<String, PodcastContextRecord>,
+}
+
+impl From<SnapshotV1> for SnapshotV2 {
+    fn from(value: SnapshotV1) -> Self {
+        Self {
+            format: value.format,
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            revision: value.revision,
+            words: value.words,
+            contexts: value.contexts,
+            review_states: value.review_states,
+            podcast_contexts: BTreeMap::new(),
+        }
+    }
+}
+
+impl SnapshotV2 {
     fn empty() -> Self {
         Self {
             format: SNAPSHOT_FORMAT.to_string(),
@@ -458,6 +599,7 @@ impl SnapshotV1 {
             words: BTreeMap::new(),
             contexts: BTreeMap::new(),
             review_states: BTreeMap::new(),
+            podcast_contexts: BTreeMap::new(),
         }
     }
 }
@@ -597,7 +739,7 @@ fn validate_review_state(state: &ReviewState) -> Result<(), SnapshotError> {
     }
 }
 
-fn validate_snapshot(snapshot: &SnapshotV1) -> Result<(), SnapshotError> {
+fn validate_snapshot(snapshot: &SnapshotV2) -> Result<(), SnapshotError> {
     let mut lemmas = HashSet::new();
     for (id, word) in &snapshot.words {
         if id != &word.id {
@@ -632,10 +774,29 @@ fn validate_snapshot(snapshot: &SnapshotV1) -> Result<(), SnapshotError> {
         ensure_word_exists(snapshot, &state.word_id)?;
         state.to_domain(WordId::new(id))?;
     }
+    for (id, record) in &snapshot.podcast_contexts {
+        if id != record.context_id.as_str() {
+            return Err(SnapshotError::CorruptSnapshot(format!(
+                "podcast context map key {id} does not match record {}",
+                record.context_id.as_str()
+            )));
+        }
+        ensure_word_exists(snapshot, record.word_id.as_str())?;
+        let context = snapshot
+            .contexts
+            .get(id)
+            .ok_or_else(|| SnapshotError::MissingContext(id.clone()))?;
+        if context.word_id != record.word_id.as_str()
+            || context.sentence != record.context.sentence
+            || context.captured_at != record.context.captured_at.timestamp_millis()
+        {
+            return Err(SnapshotError::InvalidPodcastCapture);
+        }
+    }
     Ok(())
 }
 
-fn ensure_word_exists(snapshot: &SnapshotV1, word_id: &str) -> Result<(), SnapshotError> {
+fn ensure_word_exists(snapshot: &SnapshotV2, word_id: &str) -> Result<(), SnapshotError> {
     if snapshot.words.contains_key(word_id) {
         Ok(())
     } else {
@@ -644,7 +805,7 @@ fn ensure_word_exists(snapshot: &SnapshotV1, word_id: &str) -> Result<(), Snapsh
 }
 
 fn ensure_lemma_available(
-    snapshot: &SnapshotV1,
+    snapshot: &SnapshotV2,
     word_id: &str,
     lemma: &str,
 ) -> Result<(), SnapshotError> {

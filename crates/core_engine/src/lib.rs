@@ -20,13 +20,13 @@ pub use domain::{
 pub use error::{CoreError, MediaDomainError};
 pub use media::{
     calculate_padded_audio_slice, reconcile_episode_identity, AudioSlice, CueRange,
-    EpisodeIdentity, PodcastContext, PodcastContextQuality, PodcastEpisode,
-    PodcastEpisodeProvenance, PodcastFeed, PodcastFeedProvenance, TranscriptCue,
-    TranscriptDocument, TranscriptFormat, TranscriptProvenance, TranscriptResource,
-    TranscriptToken, AUDIO_SLICE_PADDING_MS,
+    EpisodeIdentity, PodcastCapture, PodcastCaptureResult, PodcastContext, PodcastContextDraft,
+    PodcastContextQuality, PodcastContextRecord, PodcastEpisode, PodcastEpisodeProvenance,
+    PodcastFeed, PodcastFeedProvenance, TranscriptCue, TranscriptDocument, TranscriptFormat,
+    TranscriptProvenance, TranscriptResource, TranscriptToken, AUDIO_SLICE_PADDING_MS,
 };
 pub use srs::{
     calculate_next_ease_factor, calculate_next_interval_days, calculate_next_repetitions,
     initial_review_state, schedule_review, DEFAULT_EASE_FACTOR, MIN_EASE_FACTOR,
 };
-pub use storage::{LibraryStorageAdapter, StorageAdapter};
+pub use storage::{LibraryStorageAdapter, PodcastStorageAdapter, StorageAdapter};

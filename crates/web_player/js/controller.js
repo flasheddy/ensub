@@ -12,7 +12,7 @@ function errorState(error, offline = false) {
   return "unavailable";
 }
 
-export function createController({ coordinator, view, fetchImpl = globalThis.fetch, clock = () => Date.now() }) {
+export function createController({ coordinator, learning, view, fetchImpl = globalThis.fetch, clock = () => Date.now() }) {
   let state = initialState();
   let feedGeneration = 0;
   let transcriptGeneration = 0;
@@ -56,6 +56,7 @@ export function createController({ coordinator, view, fetchImpl = globalThis.fet
   }
 
   async function selectEpisode(episodeId) {
+    dispatch({ type: "lookup/closed" });
     transcriptAbort?.abort();
     const generation = ++transcriptGeneration;
     const opened = await coordinator.mutate("selectEpisode", episodeId);
@@ -98,6 +99,7 @@ export function createController({ coordinator, view, fetchImpl = globalThis.fet
   }
 
   async function selectTranscript(url) {
+    dispatch({ type: "lookup/closed" });
     const episodeId = state.transcript.episode?.episode.identity.internalId;
     if (!episodeId) return;
     transcriptAbort?.abort();
@@ -109,11 +111,53 @@ export function createController({ coordinator, view, fetchImpl = globalThis.fet
     else await loadTranscript(opened, generation);
   }
 
+  function mediaMilliseconds(seconds) {
+    return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : null;
+  }
+
+  async function lookupToken(selection) {
+    dispatch({ type: "lookup/requested", selection });
+    try {
+      const episode = state.transcript.episode;
+      const prepared = coordinator.workspace.preparePodcastCapture({
+        revision: state.workspace.revision,
+        episodeId: episode.episode.identity.internalId,
+        transcriptUrl: episode.selectedTranscriptUrl,
+        cueId: selection.cueId,
+        tokenIndex: selection.tokenIndex,
+        playbackPositionMs: mediaMilliseconds(view.elements.audio.currentTime) ?? 0,
+        durationMs: mediaMilliseconds(view.elements.audio.duration),
+      });
+      const result = learning.lookupToken(prepared.surface);
+      dispatch({ type: "lookup/resolved", prepared, result });
+    } catch (error) {
+      dispatch({ type: "lookup/failed", message: error?.message ?? "Lookup failed." });
+    }
+  }
+
+  async function captureLookup(selectedLemma) {
+    if (!state.lookup.prepared) return;
+    dispatch({ type: "lookup/capturing" });
+    try {
+      const result = await learning.capturePodcast({
+        draft: state.lookup.prepared.draft,
+        selectedLemma: selectedLemma || null,
+        capturedAtMs: clock(),
+      });
+      dispatch({ type: "lookup/captured", result });
+    } catch (error) {
+      dispatch({ type: "lookup/failed", message: error?.message ?? "Capture failed." });
+    }
+  }
+
   const handlers = {
     loadFeed,
     loadDemo: () => loadFeed(new URL("./assets/demo/feed.xml", location.href).href),
     selectEpisode,
     selectTranscript,
+    lookupToken,
+    captureLookup,
+    closeLookup: () => dispatch({ type: "lookup/closed" }),
     togglePlayback: () => audio.toggle().catch(() => {}), skip: (seconds) => audio.skip(seconds),
     seekFraction: (fraction) => audio.seek(fraction * (view.elements.audio.duration || 0)),
     seekSeconds: (seconds) => audio.seek(seconds), setRate: (rate) => audio.setRate(rate),
