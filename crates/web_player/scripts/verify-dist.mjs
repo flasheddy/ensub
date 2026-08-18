@@ -8,9 +8,22 @@ export const REQUIRED_FILES = [
   "assets/demo/audio.wav", "assets/demo/feed.xml", "assets/demo/transcript.vtt",
   "assets/lexicon-v1.manifest.json", "assets/lexicon-v1.postcard.gz",
   "js/app.js", "js/audio-host.js", "js/cache.js", "js/controller.js", "js/state.js",
-  "js/transport.js", "js/view.js", "js/wasm-client.js", "pkg/ensub_wasm.js", "pkg/ensub_wasm_bg.wasm",
+  "js/disambiguation-adapter.js", "js/disambiguation-settings.js", "js/snippet-runner.js",
+  "js/transport.js", "js/view.js", "js/wasm-client.js",
+  "pkg/ensub_wasm.js", "pkg/ensub_wasm_bg.wasm",
 ];
 const TEXT_EXTENSIONS = new Set([".css", ".html", ".js", ".json", ".mjs", ".webmanifest", ".xml"]);
+
+export function findEmbeddedCredential(source) {
+  const patterns = [
+    ["OpenAI-style credential", /\bsk-[A-Za-z0-9_-]{32,}\b/],
+    ["GitHub-style credential", /\bgh[opusr]_[A-Za-z0-9]{30,}\b/],
+    ["Slack-style credential", /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/],
+    ["AWS access identifier", /\bAKIA[A-Z0-9]{16}\b/],
+    ["literal bearer credential", /\bBearer\s+[A-Za-z0-9._~-]{24,}\b/],
+  ];
+  return patterns.find(([, pattern]) => pattern.test(source))?.[0] ?? null;
+}
 
 async function listFiles(root) {
   const files = [];
@@ -40,7 +53,8 @@ export async function verifyDist(dist) {
   for (const file of files.filter((path) => TEXT_EXTENSIONS.has(extname(path)))) {
     const source = await readFile(file, "utf8");
     const referring = relative(root, file);
-    if (/\b(?:api[_-]?key|service[_-]?role)\b/i.test(source)) throw new Error(`${referring} contains a forbidden credential reference`);
+    const credential = findEmbeddedCredential(source);
+    if (credential) throw new Error(`${referring} contains a high-confidence ${credential}`);
     for (const reference of localReferences(source)) {
       const target = resolve(dirname(file), reference.split(/[?#]/, 1)[0]);
       const child = relative(root, target);

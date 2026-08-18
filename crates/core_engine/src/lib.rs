@@ -29,4 +29,7 @@ pub use srs::{
     calculate_next_ease_factor, calculate_next_interval_days, calculate_next_repetitions,
     initial_review_state, schedule_review, DEFAULT_EASE_FACTOR, MIN_EASE_FACTOR,
 };
-pub use storage::{LibraryStorageAdapter, PodcastStorageAdapter, StorageAdapter};
+pub use storage::{
+    LibraryStorageAdapter, PodcastStorageAdapter, ReviewQueueItem, ReviewQueueStorageAdapter,
+    StorageAdapter,
+};

@@ -9,10 +9,13 @@ use wasm_bindgen_test::*;
 
 use ensub_wasm::{
     parse_podcast_feed, parse_transcript, CaptureParsedInput, CapturePodcastInput,
-    CapturePodcastOutput, CapturePodcastStatus, EnsubPlayerLearning, EnsubPlayerWorkspace,
-    EnsubSandbox, EpisodeOpenDto, ParseInput, ParseOutput, PlayerWorkspaceDto,
-    PodcastFeedParseOutputDto, PreparePodcastCaptureInput, PreparedPodcastCaptureDto, StatsInput,
-    StatsOutput, TokenLookupDto, TranscriptDocumentDto, TranscriptResourceDto, TranscriptSyncDto,
+    CapturePodcastOutput, CapturePodcastStatus, DueCountDto, DueCountInputDto, DueReviewsDto,
+    DueReviewsInputDto, EnsubPlayerLearning, EnsubPlayerWorkspace, EnsubSandbox, EpisodeOpenDto,
+    ParseInput, ParseOutput, PlayerWorkspaceDto, PodcastFeedParseOutputDto,
+    PrepareDisambiguationInputDto, PreparePodcastCaptureInput, PreparedDisambiguationDto,
+    PreparedPodcastCaptureDto, RateReviewInputDto, RevealReviewInputDto, ReviewAnswerDto,
+    ReviewTransitionDto, StatsInput, StatsOutput, TokenLookupDto, TranscriptDocumentDto,
+    TranscriptResourceDto, TranscriptSyncDto, ValidateDisambiguationResponseInputDto,
 };
 
 #[wasm_bindgen_test]
@@ -130,7 +133,7 @@ fn exported_player_lookup_and_capture_flow_is_offline_and_atomic() {
         learning
             .capture_podcast(
                 serde_wasm_bindgen::to_value(&CapturePodcastInput {
-                    draft: prepared.draft,
+                    draft: prepared.draft.clone(),
                     selected_lemma: None,
                     captured_at_ms: 1_755_244_800_000,
                 })
@@ -140,6 +143,83 @@ fn exported_player_lookup_and_capture_flow_is_offline_and_atomic() {
     )
     .expect("capture output must decode");
     assert_eq!(captured.status, CapturePodcastStatus::CreatedCard);
+
+    let due_count: DueCountDto = serde_wasm_bindgen::from_value(
+        learning
+            .due_count(
+                serde_wasm_bindgen::to_value(&DueCountInputDto {
+                    as_of_ms: 1_755_244_800_000,
+                })
+                .expect("due count input must encode"),
+            )
+            .expect("due count must execute"),
+    )
+    .expect("due count must decode");
+    assert_eq!(due_count.due_count, 1);
+    let due: DueReviewsDto = serde_wasm_bindgen::from_value(
+        learning
+            .due_reviews(
+                serde_wasm_bindgen::to_value(&DueReviewsInputDto {
+                    as_of_ms: 1_755_244_800_000,
+                    limit: 10,
+                })
+                .expect("due input must encode"),
+            )
+            .expect("due reviews must execute"),
+    )
+    .expect("due reviews must decode");
+    let prompt = &due.cards[0];
+    let answer: ReviewAnswerDto = serde_wasm_bindgen::from_value(
+        learning
+            .reveal_review(
+                serde_wasm_bindgen::to_value(&RevealReviewInputDto {
+                    word_id: prompt.word_id.clone(),
+                    review_token: prompt.review_token.clone(),
+                })
+                .expect("reveal input must encode"),
+            )
+            .expect("answer must reveal"),
+    )
+    .expect("answer must decode");
+    assert_eq!(answer.lemma, "immersion");
+
+    let disambiguation: PreparedDisambiguationDto = serde_wasm_bindgen::from_value(
+        learning
+            .prepare_disambiguation(
+                serde_wasm_bindgen::to_value(&PrepareDisambiguationInputDto {
+                    draft: prepared.draft,
+                })
+                .expect("disambiguation input must encode"),
+            )
+            .expect("disambiguation must prepare"),
+    )
+    .expect("prepared disambiguation must decode");
+    let response = learning
+        .validate_disambiguation_response(
+            serde_wasm_bindgen::to_value(&ValidateDisambiguationResponseInputDto {
+                request: disambiguation.request,
+                response_json: r#"{"matchedSenseId":"sense-0-0","explanation":"Deep involvement.","confidence":"high"}"#.to_string(),
+            })
+            .expect("validation input must encode"),
+        )
+        .expect("provider response must validate");
+    assert!(Reflect::has(&response, &"explanation".into()).expect("response must inspect"));
+
+    let transition: ReviewTransitionDto = serde_wasm_bindgen::from_value(
+        learning
+            .review(
+                serde_wasm_bindgen::to_value(&RateReviewInputDto {
+                    word_id: prompt.word_id.clone(),
+                    review_token: prompt.review_token.clone(),
+                    rating: 4,
+                    reviewed_at_ms: 1_755_244_800_000,
+                })
+                .expect("rating input must encode"),
+            )
+            .expect("rating must commit"),
+    )
+    .expect("transition must decode");
+    assert_eq!(transition.rating, 4);
     storage.remove_item(key).expect("fixture must clean up");
 }
 

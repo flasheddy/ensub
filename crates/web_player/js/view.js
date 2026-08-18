@@ -28,10 +28,27 @@ export function createView() {
     inspector: $("lookup-inspector"), lookupSurface: $("lookup-surface"), lookupPhonetic: $("lookup-phonetic"),
     lookupBody: $("lookup-body"), lookupChoice: $("lookup-choice"), lookupChoiceLabel: $("lookup-choice-label"),
     capture: $("capture-button"), lookupClose: $("lookup-close"),
+    reviewButton: $("review-button"), reviewDueCount: $("review-due-count"),
+    reviewDialog: $("review-dialog"), reviewClose: $("review-close"), reviewProgress: $("review-progress"),
+    reviewStatus: $("review-status"), reviewContent: $("review-content"), reviewContext: $("review-context"),
+    reviewContextLabel: $("review-context-label"), reviewSentence: $("review-sentence"), reviewPlay: $("review-play"),
+    reviewAudioStatus: $("review-audio-status"), reviewReveal: $("review-reveal"), reviewAnswer: $("review-answer"),
+    reviewLemma: $("review-lemma"), reviewPhonetic: $("review-phonetic"), reviewDefinition: $("review-definition"),
+    reviewRatings: $("review-ratings"), reviewNext: $("review-next"),
+    disambiguationActions: $("disambiguation-actions"), disambiguate: $("disambiguate-button"),
+    providerSettingsButton: $("provider-settings-button"), disambiguationResult: $("disambiguation-result"),
+    disambiguationMessage: $("disambiguation-message"), providerSettingsDialog: $("provider-settings-dialog"),
+    providerSettingsForm: $("provider-settings-form"), providerEndpoint: $("provider-endpoint"),
+    providerModel: $("provider-model"), providerCredential: $("provider-credential"), providerRemember: $("provider-remember"),
+    providerSettingsMessage: $("provider-settings-message"), providerSettingsCancel: $("provider-settings-cancel"),
+    providerConsentDialog: $("provider-consent-dialog"), providerPayloadPreview: $("provider-payload-preview"),
+    providerConsentCancel: $("provider-consent-cancel"), providerConsentConfirm: $("provider-consent-confirm"),
   };
   let cueNodes = [];
   let renderedTranscript = null;
   let handlers;
+  let reviewWasOpen = false;
+  let reviewReturnFocus = null;
 
   elements.feedForm.addEventListener("submit", (event) => { event.preventDefault(); handlers.loadFeed(elements.feedUrl.value); });
   elements.demo.addEventListener("click", () => handlers.loadDemo());
@@ -46,6 +63,37 @@ export function createView() {
   elements.transcriptSelect.addEventListener("change", () => handlers.selectTranscript(elements.transcriptSelect.value));
   elements.lookupClose.addEventListener("click", () => handlers.closeLookup());
   elements.capture.addEventListener("click", () => handlers.captureLookup(elements.lookupChoice.value));
+  elements.reviewButton.addEventListener("click", () => handlers.openReview());
+  elements.reviewClose.addEventListener("click", () => handlers.closeReview());
+  elements.reviewReveal.addEventListener("click", () => handlers.revealReview());
+  elements.reviewPlay.addEventListener("click", () => handlers.playReviewSnippet());
+  elements.reviewNext.addEventListener("click", () => handlers.advanceReview());
+  elements.reviewContext.addEventListener("change", () => handlers.selectReviewContext(elements.reviewContext.value));
+  elements.reviewRatings.addEventListener("click", (event) => {
+    const button = event.target.closest(".review-rating");
+    if (button) handlers.rateReview(Number(button.dataset.rating));
+  });
+  elements.disambiguate.addEventListener("click", () => handlers.requestDisambiguation());
+  elements.providerSettingsButton.addEventListener("click", () => handlers.showDisambiguationSettings());
+  elements.providerSettingsCancel.addEventListener("click", () => handlers.cancelDisambiguation());
+  elements.providerConsentCancel.addEventListener("click", () => handlers.cancelDisambiguation());
+  elements.providerConsentConfirm.addEventListener("click", () => handlers.confirmDisambiguation());
+  elements.providerSettingsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    handlers.saveDisambiguationSettings({
+      adapterId: "openai_chat_completions",
+      endpointUrl: elements.providerEndpoint.value,
+      model: elements.providerModel.value,
+      credential: elements.providerCredential.value,
+      rememberCredential: elements.providerRemember.checked,
+    });
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.reviewDialog.hidden) {
+      event.preventDefault();
+      handlers.closeReview();
+    }
+  });
   elements.transcript.addEventListener("click", (event) => {
     const token = event.target.closest(".transcript-token");
     if (!token) return;
@@ -151,6 +199,8 @@ export function createView() {
   function renderLookup(lookup) {
     const open = lookup.status !== "closed";
     elements.inspector.hidden = !open;
+    elements.providerSettingsDialog.hidden = !open || lookup.ai.status !== "settings";
+    elements.providerConsentDialog.hidden = !open || lookup.ai.status !== "consent";
     if (!open) return;
     const result = lookup.result;
     elements.lookupSurface.textContent = lookup.prepared?.surface ?? "Lookup";
@@ -159,6 +209,10 @@ export function createView() {
     elements.lookupChoiceLabel.hidden = true;
     elements.capture.hidden = true;
     elements.capture.disabled = false;
+    elements.disambiguationActions.hidden = true;
+    elements.disambiguationResult.hidden = true;
+    elements.providerSettingsMessage.textContent = lookup.ai.status === "settings" ? lookup.ai.message : "";
+    elements.providerPayloadPreview.textContent = lookup.ai.prepared ? JSON.stringify(lookup.ai.prepared.request, null, 2) : "";
     elements.lookupBody.replaceChildren();
     if (lookup.status === "pending") elements.lookupBody.textContent = "Looking up locally…";
     else if (lookup.status === "capturing") elements.lookupBody.textContent = "Saving capture…";
@@ -175,6 +229,7 @@ export function createView() {
       elements.lookupPhonetic.textContent = result.entry.phonetic;
       elements.lookupBody.append(definitionList(result.entry));
       elements.capture.hidden = false;
+      elements.disambiguationActions.hidden = false;
     } else if (result?.status === "ambiguous") {
       elements.lookupBody.textContent = "Choose the matching lemma.";
       elements.lookupChoice.replaceChildren(...result.entries.map((entry) => {
@@ -186,6 +241,73 @@ export function createView() {
       elements.lookupChoice.hidden = false;
       elements.lookupChoiceLabel.hidden = false;
       elements.capture.hidden = false;
+      elements.disambiguationActions.hidden = false;
+    }
+    if (["requesting", "ready", "failed"].includes(lookup.ai.status)) {
+      elements.disambiguationResult.hidden = false;
+      if (lookup.ai.status === "requesting") elements.disambiguationMessage.textContent = "Requesting contextual explanation…";
+      else if (lookup.ai.status === "failed") elements.disambiguationMessage.textContent = lookup.ai.message;
+      else elements.disambiguationMessage.textContent = lookup.ai.response.explanation;
+    }
+  }
+
+  function renderReview(review) {
+    const open = review.phase !== "closed";
+    elements.reviewDialog.hidden = !open;
+    elements.reviewDueCount.textContent = String(review.dueCount);
+    elements.reviewButton.disabled = open;
+    if (open && !reviewWasOpen) {
+      reviewReturnFocus = document.activeElement;
+      queueMicrotask(() => elements.reviewClose.focus());
+    } else if (!open && reviewWasOpen) {
+      reviewReturnFocus?.focus?.();
+      reviewReturnFocus = null;
+    }
+    reviewWasOpen = open;
+    if (!open) return;
+
+    const card = review.cards[review.index];
+    const context = card?.contexts.find((item) => item.contextId === review.selectedContextId) ?? card?.contexts[0];
+    const activeCard = Boolean(card) && !["open", "complete", "exit"].includes(review.phase);
+    elements.reviewContent.hidden = !activeCard;
+    elements.reviewProgress.textContent = card ? `${review.index + 1} of ${review.cards.length}` : "Due cards";
+    elements.reviewStatus.textContent = review.message;
+    if (review.phase === "open") elements.reviewStatus.textContent = "Loading due cards…";
+    if (review.phase === "complete") elements.reviewStatus.textContent = review.message || "Review complete.";
+    if (review.phase === "exit") elements.reviewStatus.textContent = "Returning to the episode…";
+    if (!activeCard) return;
+
+    elements.reviewContext.replaceChildren(...card.contexts.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.contextId;
+      option.textContent = item.sourceLabel || "Saved context";
+      option.selected = item.contextId === review.selectedContextId;
+      return option;
+    }));
+    const multipleContexts = card.contexts.length > 1;
+    elements.reviewContext.hidden = !multipleContexts;
+    elements.reviewContextLabel.hidden = !multipleContexts;
+    elements.reviewSentence.textContent = context?.sentence ?? "Saved context unavailable.";
+    elements.reviewPlay.disabled = !context?.audioSlice || review.audio.status === "playing";
+    elements.reviewPlay.textContent = review.audio.status === "playing" ? "Playing…" : "Replay snippet";
+    elements.reviewAudioStatus.textContent = review.audio.message;
+
+    const revealed = review.answerStatus === "ready";
+    elements.reviewReveal.hidden = revealed || review.phase === "rated";
+    elements.reviewReveal.disabled = review.phase === "revealing";
+    elements.reviewReveal.textContent = review.phase === "revealing" ? "Revealing…" : "Reveal answer";
+    elements.reviewAnswer.hidden = !revealed;
+    elements.reviewRatings.hidden = !revealed || review.phase === "rated";
+    elements.reviewRatings.querySelectorAll("button").forEach((button) => { button.disabled = review.saving; });
+    elements.reviewNext.hidden = review.phase !== "rated";
+    if (revealed) {
+      elements.reviewLemma.textContent = review.answer.lemma || review.answer.term;
+      elements.reviewPhonetic.textContent = review.answer.phonetic;
+      elements.reviewDefinition.textContent = review.answer.definition;
+    } else {
+      elements.reviewLemma.textContent = "";
+      elements.reviewPhonetic.textContent = "";
+      elements.reviewDefinition.textContent = "";
     }
   }
 
@@ -238,6 +360,7 @@ export function createView() {
       elements.volume.value = String(state.media.volume);
       elements.network.textContent = state.capabilities.online ? "Local workspace" : "Offline · cached content only";
       renderLookup(state.lookup);
+      renderReview(state.review);
     },
     updateSync(sync, follow) {
       const active = new Set(sync.activeCueIndices);

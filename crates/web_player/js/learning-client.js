@@ -11,11 +11,36 @@ export function createLearningClient({ LearningClass, lexiconBytes, locks = glob
     lookupToken(surface) {
       return learning.lookupToken(surface);
     },
+    dueCount(input) {
+      return learning.dueCount(input);
+    },
+    dueReviews(input) {
+      return learning.dueReviews(input);
+    },
+    revealReview(input) {
+      return learning.revealReview(input);
+    },
+    prepareDisambiguation(input) {
+      return learning.prepareDisambiguation(input);
+    },
+    validateDisambiguationResponse(input) {
+      return learning.validateDisambiguationResponse(input);
+    },
     capturePodcast(input) {
       if (!writable) {
         throw new PlayerRuntimeError("writer_coordination_unavailable", "Capture requires browser Web Locks support.");
       }
-      return locks.request(LEARNING_LOCK_NAME, { mode: "exclusive" }, () => learning.capturePodcast(input));
+      return Promise.resolve(
+        locks.request(LEARNING_LOCK_NAME, { mode: "exclusive" }, () => learning.capturePodcast(input)),
+      );
+    },
+    review(input) {
+      if (!writable) {
+        throw new PlayerRuntimeError("writer_coordination_unavailable", "Review requires browser Web Locks support.");
+      }
+      return Promise.resolve(
+        locks.request(LEARNING_LOCK_NAME, { mode: "exclusive" }, () => learning.review(input)),
+      );
     },
   };
 }

@@ -8,5 +8,6 @@ test("PWA artifact contract includes player, media, WASM, icons, and lexicon sid
     "assets/demo/audio.wav", "assets/demo/feed.xml", "assets/demo/transcript.vtt",
     "assets/lexicon-v1.manifest.json", "assets/lexicon-v1.postcard.gz",
     "pkg/ensub_wasm.js", "pkg/ensub_wasm_bg.wasm", "js/app.js",
+    "js/disambiguation-adapter.js", "js/disambiguation-settings.js", "js/snippet-runner.js",
   ]));
 });

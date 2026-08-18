@@ -4,9 +4,9 @@ use std::error::Error;
 use chrono::{DateTime, Utc};
 use core_engine::{
     Capture, CaptureResult, ContextId, ContextRecord, IntervalDistribution, PodcastCapture,
-    PodcastCaptureResult, PodcastContextRecord, PodcastStorageAdapter, ReviewCard, ReviewRating,
-    ReviewState, ReviewStatistics, ReviewUpdate, StorageAdapter, WordId, WordRecord,
-    MIN_EASE_FACTOR,
+    PodcastCaptureResult, PodcastContextRecord, PodcastStorageAdapter, ReviewCard, ReviewQueueItem,
+    ReviewQueueStorageAdapter, ReviewRating, ReviewState, ReviewStatistics, ReviewUpdate,
+    StorageAdapter, WordId, WordRecord, MIN_EASE_FACTOR,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -484,6 +484,88 @@ impl<B: SnapshotBackend> PodcastStorageAdapter for SnapshotStorage<B> {
         });
         Ok(contexts)
     }
+}
+
+impl<B: SnapshotBackend> ReviewQueueStorageAdapter for SnapshotStorage<B> {
+    fn due_review_queue(
+        &self,
+        as_of: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<ReviewQueueItem>, Self::Error> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let snapshot = self.load_snapshot()?;
+        let mut items = Vec::new();
+        for (word_id, stored_state) in &snapshot.review_states {
+            if decode_timestamp(stored_state.next_review_at)? > as_of {
+                continue;
+            }
+            if let Some(item) = review_queue_item(&snapshot, word_id)? {
+                items.push(item);
+            }
+        }
+        items.sort_by(|left, right| {
+            left.card
+                .state
+                .next_review_at
+                .cmp(&right.card.state.next_review_at)
+                .then_with(|| left.card.word.id.as_str().cmp(right.card.word.id.as_str()))
+        });
+        items.truncate(limit as usize);
+        Ok(items)
+    }
+
+    fn review_item(&self, word_id: &WordId) -> Result<Option<ReviewQueueItem>, Self::Error> {
+        let snapshot = self.load_snapshot()?;
+        review_queue_item(&snapshot, word_id.as_str())
+    }
+}
+
+fn review_queue_item(
+    snapshot: &SnapshotV2,
+    word_id: &str,
+) -> Result<Option<ReviewQueueItem>, SnapshotError> {
+    let Some(stored_state) = snapshot.review_states.get(word_id) else {
+        return Ok(None);
+    };
+    let stored_word = snapshot
+        .words
+        .get(word_id)
+        .ok_or_else(|| SnapshotError::MissingWord(word_id.to_string()))?;
+    let mut contexts = snapshot
+        .contexts
+        .values()
+        .filter(|context| context.word_id == word_id)
+        .map(StoredContextV1::to_domain)
+        .collect::<Result<Vec<_>, _>>()?;
+    contexts.sort_by(|left, right| {
+        right
+            .captured_at
+            .cmp(&left.captured_at)
+            .then_with(|| left.id.as_str().cmp(right.id.as_str()))
+    });
+    let mut podcast_contexts = snapshot
+        .podcast_contexts
+        .values()
+        .filter(|record| record.word_id.as_str() == word_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    podcast_contexts.sort_by(|left, right| {
+        right
+            .context
+            .captured_at
+            .cmp(&left.context.captured_at)
+            .then_with(|| left.context_id.as_str().cmp(right.context_id.as_str()))
+    });
+    Ok(Some(ReviewQueueItem {
+        card: ReviewCard {
+            word: stored_word.to_domain(WordId::new(word_id))?,
+            contexts,
+            state: stored_state.to_domain(WordId::new(word_id))?,
+        },
+        podcast_contexts,
+    }))
 }
 
 #[derive(Debug, Error)]

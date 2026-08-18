@@ -1,7 +1,7 @@
 import { createWorkspaceCoordinator } from "./cache.js";
 import { loadLexicon } from "./assets.js";
 import { createController } from "./controller.js";
-import { createLearningClient } from "./learning-client.js";
+import { createLearningClient, LEARNING_STORAGE_KEY } from "./learning-client.js";
 import { createView } from "./view.js";
 import { createWorkspace, EnsubPlayerLearning, initializeWasm } from "./wasm-client.js";
 
@@ -24,6 +24,9 @@ async function boot() {
     });
     addEventListener("online", () => controller.setOnline(true));
     addEventListener("offline", () => controller.setOnline(false));
+    addEventListener("storage", (event) => {
+      if (event.key === LEARNING_STORAGE_KEY) controller.refreshDueCount();
+    });
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js").catch(() => {});
   } catch (error) {
     document.getElementById("network-state").textContent = "Workspace unavailable";

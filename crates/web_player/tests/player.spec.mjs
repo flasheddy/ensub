@@ -77,3 +77,71 @@ test("mobile player has no horizontal overflow", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(0);
   await expect(page.locator("footer.player")).toBeVisible();
 });
+
+test("captured cards review in-player with masked answers and restored playback", async ({ page }) => {
+  await page.getByRole("button", { name: "Load Demo Episode" }).click();
+  const token = page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first();
+  await token.click();
+  await page.getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(page.locator("#review-due-count")).toHaveText("1");
+
+  await page.locator("audio").evaluate((audio) => { audio.currentTime = 4; audio.pause(); });
+  await page.getByRole("button", { name: /Review/ }).click();
+  await expect(page.getByRole("dialog", { name: "Review" })).toBeVisible();
+  await expect(page.locator("#review-sentence")).toContainText("Listening begins");
+  await expect(page.locator("#review-answer")).toBeHidden();
+  await expect(page.locator(".review-rating").first()).toBeHidden();
+
+  await page.getByRole("button", { name: "Replay snippet" }).click();
+  await expect(page.locator("#review-play")).toBeEnabled({ timeout: 5_000 });
+  await expect(page.locator("#review-answer")).toBeHidden();
+  await page.getByRole("button", { name: "Reveal answer" }).click();
+  await expect(page.locator("#review-lemma")).toHaveText("listening");
+  await expect(page.locator(".review-rating")).toHaveCount(6);
+  await page.locator('.review-rating[data-rating="4"]').click();
+  await expect(page.getByRole("button", { name: "Next card" })).toBeVisible();
+  await page.getByRole("button", { name: "Next card" }).click();
+  await expect(page.locator("#review-status")).toContainText("Review complete");
+  await page.getByRole("button", { name: "Exit review" }).click();
+  await expect(page.getByRole("dialog", { name: "Review" })).toBeHidden();
+  await expect.poll(() => page.locator("audio").evaluate((audio) => audio.currentTime)).toBeCloseTo(4, 1);
+  await expect(page.locator("#review-due-count")).toHaveText("0");
+});
+
+test("context explanation requires disclosure consent and sends the minimal schema-enforced payload", async ({ page }) => {
+  let providerRequest;
+  await page.route("**/provider", async (route) => {
+    providerRequest = route.request();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        matchedSenseId: "sense-0-0", explanation: "The sentence uses listening as attentive hearing.", confidence: "high",
+      }) } }] }),
+    });
+  });
+  await page.getByRole("button", { name: "Load Demo Episode" }).click();
+  await page.locator(".transcript-token").filter({ hasText: /^Listening$/ }).first().click();
+  await page.getByRole("button", { name: "Explain in context" }).click();
+  await expect(page.getByRole("dialog", { name: "Context provider" })).toBeVisible();
+  await page.locator("#provider-endpoint").fill(`${new URL(page.url()).origin}/provider`);
+  await page.locator("#provider-model").fill("fixture-model");
+  await page.locator("#provider-credential").fill("synthetic-credential");
+  await page.getByRole("button", { name: "Save settings" }).click();
+
+  await page.getByRole("button", { name: "Explain in context" }).click();
+  const consent = page.getByRole("dialog", { name: "Send context to provider?" });
+  await expect(consent).toBeVisible();
+  const preview = JSON.parse(await page.locator("#provider-payload-preview").textContent());
+  expect(Object.keys(preview).sort()).toEqual(["candidateSenses", "episodeLabel", "savedSentence", "selectedWord"]);
+  expect(providerRequest).toBeUndefined();
+  await page.getByRole("button", { name: "Send once" }).click();
+  await expect(page.locator("#disambiguation-message")).toContainText("attentive hearing");
+
+  const body = JSON.parse(providerRequest.postData());
+  expect(body.response_format).toEqual({ type: "json_object" });
+  expect(body.messages[0].content).toContain('"additionalProperties": false');
+  expect(body.messages[1].content).not.toContain("audio.wav");
+  expect(providerRequest.headers().authorization).toBe("Bearer synthetic-credential");
+  await expect(page.locator(".lookup-definitions li").first()).toBeVisible();
+});

@@ -96,10 +96,10 @@ the browser's Web Locks API. If Web Locks are unavailable, parsing and state
 queries remain available but the sandbox opens read-only.
 
 The lexicon, WASM module, application shell, and service worker are bundled in
-one same-origin static distribution. Its build rejects remote endpoint,
-Supabase, LLM, and credential references. Once installed by the service
-worker, the complete workflow can reload offline. Reset removes only this
-snapshot; corrupt or newer snapshots are preserved until an explicit reset.
+one same-origin static distribution. Its build rejects high-confidence embedded
+credential literals. Once installed by the service worker, the complete local
+workflow can reload offline. Reset removes only this snapshot; corrupt or newer
+snapshots are preserved until an explicit reset.
 
 ## Ensub Player Storage
 
@@ -126,6 +126,30 @@ audio and transcripts must already be cached or reachable.
 Learning snapshot v1 data migrates forward in memory. Ensub writes schema v2
 only after a complete successful mutation; corrupt, newer, or failed-migration
 snapshots remain unchanged so reset or future recovery remains possible.
+
+In-player review reads due cards from the same learning snapshot. The prompt
+does not expose lemma or definition fields until the explicit Reveal action.
+Each prompt carries a deterministic hash of its current scheduling state; stale
+ratings from another tab are rejected and refreshed rather than replayed. Audio
+snippet replay seeks the existing media element and does not write review
+history. If the enclosure is unreachable or absent from cache, the saved text
+remains available and rating continues normally.
+
+Optional contextual disambiguation is disabled until the user explicitly
+configures a provider and selects **Explain in context**. Provider metadata is
+stored locally. The credential is stored in `sessionStorage` by default, or in
+`localStorage` only after **Remember on this device** is selected. It is sent in
+the request authorization header and is not written to logs, fixtures, static
+assets, or the WASM module.
+
+Before the first request to each configured adapter/endpoint combination, a
+versioned disclosure shows the outbound payload. Only the selected word, saved
+sentence, candidate bundled-dictionary senses, and minimal episode label leave
+the device. Ensub does not send the full transcript, feed contents, raw audio,
+learning snapshot, or playback history. Provider responses are schema-validated
+and displayed in a separate ephemeral panel; they never replace stored local
+definitions. Missing credentials, offline/CORS failures, timeouts, HTTP errors,
+and malformed responses do not disable lookup, capture, playback, or review.
 
 ## Ensub Context Storage
 

@@ -1,4 +1,6 @@
 import { createAudioHost } from "./audio-host.js";
+import { createOpenAiChatCompletionsAdapter } from "./disambiguation-adapter.js";
+import { createDisambiguationSettings } from "./disambiguation-settings.js";
 import { decodeUtf8, fetchBounded } from "./transport.js";
 import { initialState, reduce } from "./state.js";
 
@@ -12,13 +14,24 @@ function errorState(error, offline = false) {
   return "unavailable";
 }
 
-export function createController({ coordinator, learning, view, fetchImpl = globalThis.fetch, clock = () => Date.now() }) {
+export function createController({
+  coordinator,
+  learning,
+  view,
+  fetchImpl = globalThis.fetch,
+  clock = () => Date.now(),
+  disambiguationSettings = createDisambiguationSettings(),
+  disambiguationAdapters = { openai_chat_completions: createOpenAiChatCompletionsAdapter({ fetchImpl }) },
+}) {
   let state = initialState();
   let feedGeneration = 0;
   let transcriptGeneration = 0;
   let mediaGeneration = 0;
   let feedAbort;
   let transcriptAbort;
+  let reviewSession = 0;
+  let disambiguationRequestId = 0;
+  let disambiguationAbort;
 
   function dispatch(action) {
     state = reduce(state, action);
@@ -56,6 +69,8 @@ export function createController({ coordinator, learning, view, fetchImpl = glob
   }
 
   async function selectEpisode(episodeId) {
+    if (state.review.phase !== "closed") await closeReview();
+    disambiguationAbort?.abort();
     dispatch({ type: "lookup/closed" });
     transcriptAbort?.abort();
     const generation = ++transcriptGeneration;
@@ -116,6 +131,7 @@ export function createController({ coordinator, learning, view, fetchImpl = glob
   }
 
   async function lookupToken(selection) {
+    disambiguationAbort?.abort();
     dispatch({ type: "lookup/requested", selection });
     try {
       const episode = state.transcript.episode;
@@ -145,9 +161,214 @@ export function createController({ coordinator, learning, view, fetchImpl = glob
         capturedAtMs: clock(),
       });
       dispatch({ type: "lookup/captured", result });
+      await refreshDueCount();
     } catch (error) {
       dispatch({ type: "lookup/failed", message: error?.message ?? "Capture failed." });
     }
+  }
+
+  function providerConfig() {
+    const config = disambiguationSettings.load();
+    const credential = disambiguationSettings.credential();
+    if (!config?.adapterId || !config.endpointUrl || !config.model || !credential) return null;
+    return { config, credential };
+  }
+
+  async function sendDisambiguation(prepared, requestId) {
+    const provider = providerConfig();
+    if (!provider) {
+      dispatch({ type: "lookup/aiSettings", message: "Configure the provider endpoint, model, and credential." });
+      return;
+    }
+    const adapter = disambiguationAdapters[provider.config.adapterId];
+    if (!adapter) {
+      dispatch({ type: "lookup/aiSettings", message: "The configured provider adapter is unavailable." });
+      return;
+    }
+    disambiguationAbort?.abort();
+    const request = new AbortController();
+    disambiguationAbort = request;
+    dispatch({ type: "lookup/aiRequested", prepared, requestId });
+    try {
+      const responseJson = await adapter.send({
+        endpointUrl: provider.config.endpointUrl,
+        model: provider.config.model,
+        credential: provider.credential,
+        prepared,
+        signal: request.signal,
+      });
+      const response = await Promise.resolve(learning.validateDisambiguationResponse({
+        request: prepared.request,
+        responseJson,
+      }));
+      dispatch({ type: "lookup/aiResolved", requestId, response });
+    } catch (error) {
+      if (request.signal.aborted) return;
+      dispatch({ type: "lookup/aiFailed", requestId, message: error?.message ?? "The contextual explanation is unavailable." });
+    }
+  }
+
+  async function requestDisambiguation() {
+    if (!state.lookup.prepared || !["found", "ambiguous"].includes(state.lookup.result?.status)) return;
+    const provider = providerConfig();
+    if (!provider) {
+      dispatch({ type: "lookup/aiSettings", message: "Configure the provider endpoint, model, and credential." });
+      return;
+    }
+    try {
+      const prepared = await Promise.resolve(learning.prepareDisambiguation({ draft: state.lookup.prepared.draft }));
+      const requestId = ++disambiguationRequestId;
+      if (!disambiguationSettings.hasConsent(provider.config.adapterId, provider.config.endpointUrl)) {
+        dispatch({ type: "lookup/aiConsent", prepared, requestId });
+        return;
+      }
+      await sendDisambiguation(prepared, requestId);
+    } catch (error) {
+      const requestId = ++disambiguationRequestId;
+      dispatch({ type: "lookup/aiRequested", prepared: null, requestId });
+      dispatch({ type: "lookup/aiFailed", requestId, message: error?.message ?? "The contextual request could not be prepared." });
+    }
+  }
+
+  async function confirmDisambiguation() {
+    const prepared = state.lookup.ai.prepared;
+    const provider = providerConfig();
+    if (!prepared || !provider) {
+      dispatch({ type: "lookup/aiSettings", message: "Configure the provider before sending." });
+      return;
+    }
+    disambiguationSettings.grantConsent(provider.config.adapterId, provider.config.endpointUrl);
+    await sendDisambiguation(prepared, state.lookup.ai.requestId);
+  }
+
+  function saveDisambiguationSettings(input) {
+    try {
+      disambiguationSettings.save(input);
+      dispatch({ type: "lookup/aiIdle" });
+    } catch (error) {
+      dispatch({ type: "lookup/aiSettings", message: error?.message ?? "Provider settings are invalid." });
+    }
+  }
+
+  function showDisambiguationSettings() {
+    dispatch({ type: "lookup/aiSettings" });
+  }
+
+  function cancelDisambiguation() {
+    disambiguationAbort?.abort();
+    dispatch({ type: "lookup/aiIdle" });
+  }
+
+  async function refreshDueCount() {
+    try {
+      const result = await Promise.resolve(learning.dueCount({ asOfMs: clock() }));
+      dispatch({ type: "review/dueCount", dueCount: result.dueCount });
+    } catch { /* Review availability must not affect playback or lookup. */ }
+  }
+
+  async function loadReviewQueue(sessionId, message = "") {
+    const result = await Promise.resolve(learning.dueReviews({ asOfMs: state.review.asOfMs, limit: 20 }));
+    dispatch({ type: "review/loaded", sessionId, cards: result.cards, message });
+  }
+
+  async function openReview() {
+    if (state.review.phase !== "closed") return;
+    const sessionId = ++reviewSession;
+    audio.enterSnippetMode();
+    dispatch({ type: "review/opened", sessionId, asOfMs: clock() });
+    try {
+      await loadReviewQueue(sessionId);
+    } catch (error) {
+      dispatch({ type: "review/failed", sessionId, message: error?.message ?? "Review cards are unavailable." });
+    }
+  }
+
+  async function revealReview() {
+    const sessionId = state.review.sessionId;
+    const card = state.review.cards[state.review.index];
+    if (!card || state.review.phase !== "prompt") return;
+    dispatch({ type: "review/revealRequested", sessionId });
+    try {
+      const answer = await Promise.resolve(learning.revealReview({
+        wordId: card.wordId,
+        reviewToken: card.reviewToken,
+      }));
+      dispatch({ type: "review/revealed", sessionId, answer });
+    } catch (error) {
+      dispatch({ type: "review/revealFailed", sessionId, message: error?.message ?? "The answer is unavailable." });
+    }
+  }
+
+  async function rateReview(rating) {
+    const sessionId = state.review.sessionId;
+    const card = state.review.cards[state.review.index];
+    if (!card || state.review.answerStatus !== "ready" || state.review.saving) return;
+    dispatch({ type: "review/ratingRequested", sessionId });
+    try {
+      const transition = await learning.review({
+        wordId: card.wordId,
+        reviewToken: card.reviewToken,
+        rating,
+        reviewedAtMs: clock(),
+      });
+      dispatch({ type: "review/rated", sessionId, transition });
+      await refreshDueCount();
+    } catch (error) {
+      if (error?.code === "review_conflict") {
+        try {
+          await loadReviewQueue(sessionId, "This card changed in another session. The review queue was refreshed.");
+        } catch (reloadError) {
+          dispatch({ type: "review/failed", sessionId, message: reloadError?.message ?? "The refreshed queue is unavailable." });
+        }
+        return;
+      }
+      dispatch({ type: "review/ratingFailed", sessionId, message: error?.message ?? "The rating was not saved." });
+    }
+  }
+
+  async function advanceReview() {
+    const sessionId = state.review.sessionId;
+    if (state.review.phase !== "rated") return;
+    if (state.review.index + 1 < state.review.cards.length) {
+      dispatch({ type: "review/advanced", sessionId });
+      return;
+    }
+    try {
+      await loadReviewQueue(sessionId);
+    } catch (error) {
+      dispatch({ type: "review/failed", sessionId, message: error?.message ?? "Review cards are unavailable." });
+    }
+  }
+
+  function selectReviewContext(contextId) {
+    dispatch({ type: "review/contextSelected", sessionId: state.review.sessionId, contextId });
+  }
+
+  async function playReviewSnippet() {
+    const sessionId = state.review.sessionId;
+    const card = state.review.cards[state.review.index];
+    const context = card?.contexts.find((item) => item.contextId === state.review.selectedContextId);
+    if (!context?.audioSlice) {
+      dispatch({ type: "review/audio", sessionId, status: "audio_unavailable", message: "Audio is unavailable. Continue with the saved text." });
+      return { status: "audio_unavailable", reason: "missing_slice" };
+    }
+    dispatch({ type: "review/audio", sessionId, status: "playing" });
+    const result = await audio.playSnippet(context.audioSlice);
+    if (result.status === "audio_unavailable") {
+      dispatch({ type: "review/audio", sessionId, status: result.status, message: "Audio is unavailable. Continue with the saved text." });
+    } else if (result.status === "completed") {
+      dispatch({ type: "review/audio", sessionId, status: "ready" });
+    }
+    return result;
+  }
+
+  async function closeReview() {
+    if (state.review.phase === "closed") return;
+    const sessionId = state.review.sessionId;
+    dispatch({ type: "review/exiting", sessionId });
+    await audio.exitSnippetMode();
+    dispatch({ type: "review/closed", sessionId });
+    reviewSession += 1;
   }
 
   const handlers = {
@@ -157,7 +378,23 @@ export function createController({ coordinator, learning, view, fetchImpl = glob
     selectTranscript,
     lookupToken,
     captureLookup,
-    closeLookup: () => dispatch({ type: "lookup/closed" }),
+    closeLookup() {
+      disambiguationAbort?.abort();
+      dispatch({ type: "lookup/closed" });
+    },
+    requestDisambiguation,
+    confirmDisambiguation,
+    saveDisambiguationSettings,
+    showDisambiguationSettings,
+    cancelDisambiguation,
+    refreshDueCount,
+    openReview,
+    revealReview,
+    rateReview,
+    advanceReview,
+    selectReviewContext,
+    playReviewSnippet,
+    closeReview,
     togglePlayback: () => audio.toggle().catch(() => {}), skip: (seconds) => audio.skip(seconds),
     seekFraction: (fraction) => audio.seek(fraction * (view.elements.audio.duration || 0)),
     seekSeconds: (seconds) => audio.seek(seconds), setRate: (rate) => audio.setRate(rate),
@@ -175,10 +412,12 @@ export function createController({ coordinator, learning, view, fetchImpl = glob
       const workspace = coordinator.workspace.view();
       dispatch({ type: "feed/succeeded", generation: 0, workspace });
       dispatch({ type: "capabilities/updated", capabilities: { storage: "ready", online: navigator.onLine } });
+      await refreshDueCount();
       const selected = workspace.selectedEpisodeId;
       if (selected) await selectEpisode(selected);
     },
     reloadWorkspace(workspace) { dispatch({ type: "workspace/updated", workspace }); },
     setOnline(online) { dispatch({ type: "capabilities/updated", capabilities: { online } }); },
+    refreshDueCount,
   };
 }

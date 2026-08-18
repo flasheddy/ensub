@@ -1,12 +1,22 @@
 use chrono::{DateTime, Utc};
-use core_engine::{PodcastContextDraft, PodcastStorageAdapter};
+use core_engine::{
+    schedule_review, PodcastContextDraft, PodcastStorageAdapter, ReviewQueueStorageAdapter,
+    ReviewRating, ReviewUpdate, StorageAdapter, WordId,
+};
 use language_engine::{
-    podcast_capture_from_entry, BrowserLexicon, BrowserLexiconError, Definition, LexiconEntry,
+    podcast_capture_from_entry, prepare_disambiguation, validate_disambiguation_response,
+    BrowserLexicon, BrowserLexiconError, Definition, DisambiguationError, LexiconEntry,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
+use crate::review::{prompt_from_item, review_token};
+use crate::{
+    DueCountDto, DueCountInputDto, DueReviewsDto, DueReviewsInputDto,
+    PrepareDisambiguationInputDto, PreparedDisambiguationDto, RateReviewInputDto,
+    RevealReviewInputDto, ReviewAnswerDto, ReviewTransitionDto, SnapshotAccess, SnapshotBackend,
+    SnapshotError, SnapshotStorage, ValidateDisambiguationResponseInputDto,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,8 +104,22 @@ pub enum PlayerLearningError {
     InvalidLemma,
     #[error("capture timestamp is invalid")]
     InvalidTimestamp,
+    #[error("review queue limit {0} is outside the inclusive range 1 through 50")]
+    InvalidReviewLimit(u32),
+    #[error("rating {0} is outside the inclusive range 0 through 5")]
+    InvalidRating(u8),
+    #[error("review card is unavailable")]
+    ReviewNotFound,
+    #[error("review state changed; refresh the due queue")]
+    ReviewConflict,
+    #[error("review token serialization failed: {0}")]
+    ReviewToken(String),
     #[error("podcast capture is invalid: {0}")]
     InvalidCapture(String),
+    #[error(transparent)]
+    Disambiguation(#[from] DisambiguationError),
+    #[error(transparent)]
+    Core(#[from] core_engine::CoreError),
     #[error(transparent)]
     Storage(#[from] SnapshotError),
 }
@@ -168,4 +192,119 @@ impl<B: SnapshotBackend> PlayerLearning<B> {
             context_id: capture.podcast_context.context_id.as_str().to_string(),
         })
     }
+
+    pub fn due_count(&self, input: DueCountInputDto) -> Result<DueCountDto, PlayerLearningError> {
+        let as_of = learning_timestamp(input.as_of_ms)?;
+        Ok(DueCountDto {
+            due_count: self.storage.due_count(as_of)?,
+        })
+    }
+
+    pub fn due_reviews(
+        &self,
+        input: DueReviewsInputDto,
+    ) -> Result<DueReviewsDto, PlayerLearningError> {
+        if !(1..=50).contains(&input.limit) {
+            return Err(PlayerLearningError::InvalidReviewLimit(input.limit));
+        }
+        let as_of = learning_timestamp(input.as_of_ms)?;
+        let cards = self
+            .storage
+            .due_review_queue(as_of, input.limit)?
+            .into_iter()
+            .map(prompt_from_item)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| PlayerLearningError::ReviewToken(error.to_string()))?;
+        Ok(DueReviewsDto {
+            as_of_ms: input.as_of_ms,
+            cards,
+        })
+    }
+
+    pub fn reveal_review(
+        &self,
+        input: RevealReviewInputDto,
+    ) -> Result<ReviewAnswerDto, PlayerLearningError> {
+        let item = self
+            .storage
+            .review_item(&WordId::new(&input.word_id))?
+            .ok_or(PlayerLearningError::ReviewNotFound)?;
+        let current_token = review_token(&item.card.state)
+            .map_err(|error| PlayerLearningError::ReviewToken(error.to_string()))?;
+        if current_token != input.review_token {
+            return Err(PlayerLearningError::ReviewConflict);
+        }
+        Ok(ReviewAnswerDto {
+            word_id: item.card.word.id.into_inner(),
+            review_token: current_token,
+            term: item.card.word.term,
+            lemma: item.card.word.lemma,
+            phonetic: item.card.word.phonetic,
+            definition: item.card.word.definition,
+        })
+    }
+
+    pub fn review(
+        &mut self,
+        input: RateReviewInputDto,
+    ) -> Result<ReviewTransitionDto, PlayerLearningError> {
+        let rating = ReviewRating::try_from(input.rating)
+            .map_err(|_| PlayerLearningError::InvalidRating(input.rating))?;
+        let reviewed_at = learning_timestamp(input.reviewed_at_ms)?;
+        let word_id = WordId::new(&input.word_id);
+        let current = self
+            .storage
+            .review_state(&word_id)?
+            .ok_or(PlayerLearningError::ReviewNotFound)?;
+        let current_token = review_token(&current)
+            .map_err(|error| PlayerLearningError::ReviewToken(error.to_string()))?;
+        if current_token != input.review_token {
+            return Err(PlayerLearningError::ReviewConflict);
+        }
+        let replacement = schedule_review(&current, rating, reviewed_at)?;
+        if self
+            .storage
+            .commit_review(&current, &replacement, reviewed_at)?
+            == ReviewUpdate::Conflict
+        {
+            return Err(PlayerLearningError::ReviewConflict);
+        }
+        Ok(ReviewTransitionDto {
+            word_id: input.word_id,
+            rating: input.rating,
+            reviewed_at_ms: input.reviewed_at_ms,
+            ease_factor: replacement.ease_factor,
+            repetitions: replacement.repetitions,
+            interval_days: replacement.interval_days,
+            next_review_at_ms: replacement.next_review_at.timestamp_millis(),
+        })
+    }
+
+    pub fn prepare_disambiguation(
+        &self,
+        input: PrepareDisambiguationInputDto,
+    ) -> Result<PreparedDisambiguationDto, PlayerLearningError> {
+        let entries = self
+            .lexicon
+            .lookup_entries(input.draft.selected_token.surface());
+        prepare_disambiguation(
+            input.draft.selected_token.surface(),
+            &input.draft.sentence,
+            &entries,
+            &input.draft.episode.title,
+        )
+        .map(Into::into)
+        .map_err(Into::into)
+    }
+
+    pub fn validate_disambiguation_response(
+        &self,
+        input: ValidateDisambiguationResponseInputDto,
+    ) -> Result<language_engine::DisambiguationResponse, PlayerLearningError> {
+        validate_disambiguation_response(&input.request, &input.response_json).map_err(Into::into)
+    }
+}
+
+fn learning_timestamp(milliseconds: i64) -> Result<DateTime<Utc>, PlayerLearningError> {
+    DateTime::from_timestamp_millis(milliseconds).ok_or(PlayerLearningError::InvalidTimestamp)
 }

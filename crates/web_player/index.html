@@ -15,7 +15,10 @@
   <div class="app-shell">
     <header class="topbar">
       <a class="brand" href="./" aria-label="Ensub Player home"><span class="brand-mark">E</span><span>Ensub Player</span></a>
-      <div class="network-state" id="network-state" role="status">Local workspace</div>
+      <div class="topbar-actions">
+        <button id="review-button" class="review-entry" type="button">Review <span id="review-due-count" aria-label="cards due">0</span></button>
+        <div class="network-state" id="network-state" role="status">Local workspace</div>
+      </div>
     </header>
 
     <aside class="library" aria-label="Podcast library">
@@ -68,6 +71,14 @@
             <label id="lookup-choice-label" class="lookup-choice-label" for="lookup-choice" hidden>Lemma</label>
             <select id="lookup-choice" hidden></select>
             <button id="capture-button" class="primary-command lookup-capture" type="button" hidden>Capture</button>
+            <div id="disambiguation-actions" class="disambiguation-actions" hidden>
+              <button id="disambiguate-button" class="secondary-command" type="button">Explain in context</button>
+              <button id="provider-settings-button" class="lookup-close" type="button" aria-label="Provider settings" title="Provider settings">⚙</button>
+            </div>
+            <section id="disambiguation-result" class="disambiguation-result" aria-label="AI contextual explanation" hidden>
+              <span>AI context</span>
+              <p id="disambiguation-message" role="status"></p>
+            </section>
           </aside>
         </div>
       </section>
@@ -102,6 +113,71 @@
         <input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
       </div>
     </footer>
+
+    <section id="review-dialog" class="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title" hidden>
+      <div class="review-panel">
+        <header class="review-header">
+          <div>
+            <span id="review-progress" class="review-progress"></span>
+            <h2 id="review-title">Review</h2>
+          </div>
+          <button id="review-close" class="lookup-close" type="button" aria-label="Exit review" title="Exit review">×</button>
+        </header>
+        <div id="review-status" class="review-status" role="status"></div>
+        <div id="review-content" class="review-content">
+          <label id="review-context-label" for="review-context">Context</label>
+          <select id="review-context"></select>
+          <blockquote id="review-sentence" class="review-sentence"></blockquote>
+          <button id="review-play" class="review-play" type="button">Replay snippet</button>
+          <p id="review-audio-status" class="review-audio-status" role="status"></p>
+          <button id="review-reveal" class="primary-command review-reveal" type="button">Reveal answer</button>
+          <section id="review-answer" class="review-answer" aria-label="Answer" hidden>
+            <div><strong id="review-lemma"></strong><span id="review-phonetic"></span></div>
+            <p id="review-definition"></p>
+          </section>
+          <div id="review-ratings" class="review-ratings" aria-label="Rate recall" hidden>
+            <button class="review-rating" type="button" data-rating="0">0</button>
+            <button class="review-rating" type="button" data-rating="1">1</button>
+            <button class="review-rating" type="button" data-rating="2">2</button>
+            <button class="review-rating" type="button" data-rating="3">3</button>
+            <button class="review-rating" type="button" data-rating="4">4</button>
+            <button class="review-rating" type="button" data-rating="5">5</button>
+          </div>
+          <button id="review-next" class="primary-command review-next" type="button" hidden>Next card</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="provider-settings-dialog" class="provider-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-settings-title" hidden>
+      <form id="provider-settings-form" class="provider-panel">
+        <h2 id="provider-settings-title">Context provider</h2>
+        <p>Requests are sent only when you choose Explain in context.</p>
+        <label for="provider-endpoint">Endpoint</label>
+        <input id="provider-endpoint" type="url" inputmode="url" placeholder="https://provider.example/v1/chat/completions" required>
+        <label for="provider-model">Model</label>
+        <input id="provider-model" type="text" autocomplete="off" required>
+        <label for="provider-credential">Provider credential</label>
+        <input id="provider-credential" type="password" autocomplete="off" required>
+        <label class="provider-remember"><input id="provider-remember" type="checkbox"> Remember on this device</label>
+        <p id="provider-settings-message" class="provider-message" role="status"></p>
+        <div class="provider-commands">
+          <button id="provider-settings-cancel" class="secondary-command" type="button">Cancel</button>
+          <button class="primary-command" type="submit">Save settings</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="provider-consent-dialog" class="provider-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-consent-title" hidden>
+      <div class="provider-panel">
+        <h2 id="provider-consent-title">Send context to provider?</h2>
+        <p>The selected word, saved sentence, candidate local dictionary senses, and episode label leave this device. The full transcript and audio are never sent.</p>
+        <pre id="provider-payload-preview" class="provider-payload-preview"></pre>
+        <div class="provider-commands">
+          <button id="provider-consent-cancel" class="secondary-command" type="button">Cancel</button>
+          <button id="provider-consent-confirm" class="primary-command" type="button">Send once</button>
+        </div>
+      </div>
+    </section>
   </div>
   <script type="module" src="./js/app.js"></script>
 </body>

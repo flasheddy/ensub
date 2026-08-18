@@ -26,6 +26,19 @@ Selecting a token performs an offline WASM lookup; a separate Capture action
 persists the bounded cross-cue sentence, structured podcast provenance, logical
 audio slice, lexical data, and initial review state atomically.
 
+Due cards open in a modal review session inside the player. Prompt DTOs contain
+only saved contexts and logical audio slices; lemma and definition data are
+requested from WASM only after Reveal. The host temporarily checkpoints the
+episode source, position, play/pause state, rate, volume, and mute state while a
+snippet runner seeks and stops the same audio element. Exiting review restores
+that checkpoint. Missing remote audio never blocks text reveal or rating.
+
+Ratings use the shared Rust SM-2 implementation. Each prompt carries an
+`rs1` SHA-256 token derived from canonical current `ReviewState` content. Reveal
+and rating reload that state, and rating also uses storage compare-and-swap, so
+another tab's update produces `review_conflict` and a queue refresh instead of
+an automatic retry.
+
 ## Storage And Fetching
 
 The player stores one opaque Rust snapshot at `snapshot-v1` in the
@@ -43,3 +56,21 @@ Learning captures share the existing `ensub.sandbox.v1` localStorage snapshot
 with the Core harness and use the `ensub.sandbox.storage.v1` Web Lock. Snapshot
 schema v1 is migrated in memory and becomes v2 only after a successful write.
 The player cache remains a separate IndexedDB envelope.
+
+## Optional Context Provider
+
+Contextual explanation is an explicit lookup-panel action and is never called
+by import, playback, token selection, capture, or review. The default
+`openai_chat_completions` adapter accepts a user-configured HTTPS endpoint
+(HTTP is limited to loopback development), model, and credential. Metadata is
+versioned in local storage. Credentials use session storage by default and are
+written to local storage only when **Remember on this device** is selected.
+
+Before the first request for an adapter/endpoint/disclosure-version tuple, the
+player displays the exact payload: selected word, saved sentence, candidate
+local senses, and minimal episode label. It never includes the full transcript
+or audio. The Rust language engine creates the prompts and candidate IDs, the
+request asks for `response_format: { "type": "json_object" }`, and Rust
+validates the response against the static schema before it is rendered. AI
+output remains visually separate and ephemeral; it never overwrites bundled
+lexicon data or captured definitions.

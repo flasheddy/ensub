@@ -5,10 +5,11 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     parse_podcast_feed_dto, parse_transcript_dto, CaptureParsedInput, CapturePodcastInput,
-    DueReviewsInput, IngestionError, LocalStorageBackend, ParseInput, PlayerLearning,
-    PlayerLearningError, PlayerWorkspace, PlayerWorkspaceError, PreparePodcastCaptureInput,
-    ReviewInput, Sandbox, SandboxError, SnapshotAccess, SnapshotError, StatsInput,
-    TranscriptResourceDto,
+    DueCountInputDto, DueReviewsInput, DueReviewsInputDto, IngestionError, LocalStorageBackend,
+    ParseInput, PlayerLearning, PlayerLearningError, PlayerWorkspace, PlayerWorkspaceError,
+    PrepareDisambiguationInputDto, PreparePodcastCaptureInput, RateReviewInputDto,
+    RevealReviewInputDto, ReviewInput, Sandbox, SandboxError, SnapshotAccess, SnapshotError,
+    StatsInput, TranscriptResourceDto, ValidateDisambiguationResponseInputDto,
 };
 
 #[wasm_bindgen]
@@ -54,6 +55,51 @@ impl EnsubPlayerLearning {
     pub fn capture_podcast(&mut self, input: JsValue) -> Result<JsValue, JsValue> {
         let input: CapturePodcastInput = from_js(input)?;
         to_js(&self.inner.capture_podcast(input).map_err(learning_error)?)
+    }
+
+    #[wasm_bindgen(js_name = dueCount)]
+    pub fn due_count(&self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: DueCountInputDto = from_js(input)?;
+        to_js(&self.inner.due_count(input).map_err(learning_error)?)
+    }
+
+    #[wasm_bindgen(js_name = dueReviews)]
+    pub fn due_reviews(&self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: DueReviewsInputDto = from_js(input)?;
+        to_js(&self.inner.due_reviews(input).map_err(learning_error)?)
+    }
+
+    #[wasm_bindgen(js_name = revealReview)]
+    pub fn reveal_review(&self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: RevealReviewInputDto = from_js(input)?;
+        to_js(&self.inner.reveal_review(input).map_err(learning_error)?)
+    }
+
+    pub fn review(&mut self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: RateReviewInputDto = from_js(input)?;
+        to_js(&self.inner.review(input).map_err(learning_error)?)
+    }
+
+    #[wasm_bindgen(js_name = prepareDisambiguation)]
+    pub fn prepare_disambiguation(&self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: PrepareDisambiguationInputDto = from_js(input)?;
+        to_js(
+            &self
+                .inner
+                .prepare_disambiguation(input)
+                .map_err(learning_error)?,
+        )
+    }
+
+    #[wasm_bindgen(js_name = validateDisambiguationResponse)]
+    pub fn validate_disambiguation_response(&self, input: JsValue) -> Result<JsValue, JsValue> {
+        let input: ValidateDisambiguationResponseInputDto = from_js(input)?;
+        to_js(
+            &self
+                .inner
+                .validate_disambiguation_response(input)
+                .map_err(learning_error)?,
+        )
     }
 }
 
@@ -259,7 +305,13 @@ fn learning_error(error: PlayerLearningError) -> JsValue {
         PlayerLearningError::AmbiguousToken => "lookup_ambiguous",
         PlayerLearningError::InvalidLemma
         | PlayerLearningError::InvalidTimestamp
+        | PlayerLearningError::InvalidReviewLimit(_)
+        | PlayerLearningError::InvalidRating(_)
         | PlayerLearningError::InvalidCapture(_) => "invalid_argument",
+        PlayerLearningError::ReviewNotFound => "review_not_found",
+        PlayerLearningError::ReviewConflict => "review_conflict",
+        PlayerLearningError::ReviewToken(_) => "serialization_failed",
+        PlayerLearningError::Disambiguation(error) => error.code(),
         PlayerLearningError::Storage(SnapshotError::ReadOnly) => "storage_read_only",
         PlayerLearningError::Storage(SnapshotError::CorruptSnapshot(_)) => "storage_corrupt",
         PlayerLearningError::Storage(SnapshotError::UnsupportedSchema { .. }) => {
@@ -267,6 +319,7 @@ fn learning_error(error: PlayerLearningError) -> JsValue {
         }
         PlayerLearningError::Storage(SnapshotError::Backend { .. }) => "storage_unavailable",
         PlayerLearningError::Storage(_) => "storage_invalid",
+        PlayerLearningError::Core(_) => "review_schedule_failed",
     };
     js_error(code, &error.to_string())
 }

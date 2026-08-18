@@ -1,12 +1,20 @@
 use std::error::Error;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     Capture, CaptureResult, ContextRecord, LibraryPage, LibraryQuery, PodcastCapture,
     PodcastCaptureResult, PodcastContextRecord, ReviewActivity, ReviewCard, ReviewHistoryPage,
     ReviewHistoryQuery, ReviewState, ReviewStatistics, ReviewUpdate, WordId, WordRecord,
 };
+
+/// Review card enriched with any structured podcast encounters retained by storage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviewQueueItem {
+    pub card: ReviewCard,
+    pub podcast_contexts: Vec<PodcastContextRecord>,
+}
 
 /// Persistence boundary implemented by platform-specific storage crates.
 ///
@@ -67,6 +75,17 @@ pub trait PodcastStorageAdapter: StorageAdapter {
     ) -> Result<PodcastCaptureResult, Self::Error>;
 
     fn podcast_contexts(&self, word_id: &WordId) -> Result<Vec<PodcastContextRecord>, Self::Error>;
+}
+
+/// Optional snapshot-consistent read model for media-aware review surfaces.
+pub trait ReviewQueueStorageAdapter: StorageAdapter {
+    fn due_review_queue(
+        &self,
+        as_of: DateTime<Utc>,
+        limit: u32,
+    ) -> Result<Vec<ReviewQueueItem>, Self::Error>;
+
+    fn review_item(&self, word_id: &WordId) -> Result<Option<ReviewQueueItem>, Self::Error>;
 }
 
 /// Optional read model used by vocabulary-library and review-history surfaces.

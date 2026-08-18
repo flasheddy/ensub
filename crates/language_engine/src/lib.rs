@@ -4,6 +4,7 @@
 
 mod browser_lexicon;
 mod capture;
+mod disambiguation;
 #[cfg(feature = "document")]
 mod document;
 mod lexicon;
@@ -19,6 +20,12 @@ pub use browser_lexicon::{
 };
 pub use capture::{
     capture_from_candidate, capture_from_entry, podcast_capture_from_entry, word_id_for_lemma,
+};
+pub use disambiguation::{
+    prepare_disambiguation, validate_disambiguation_response, CandidateSense,
+    DisambiguationConfidence, DisambiguationError, DisambiguationRequest, DisambiguationResponse,
+    PreparedDisambiguation, DISAMBIGUATION_SYSTEM_PROMPT, MAX_DISAMBIGUATION_EXPLANATION_CHARS,
+    MAX_DISAMBIGUATION_RESPONSE_BYTES,
 };
 #[cfg(feature = "document")]
 pub use document::{
