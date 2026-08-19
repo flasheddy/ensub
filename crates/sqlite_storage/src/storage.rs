@@ -8,12 +8,19 @@ use core_engine::{
     ReviewHistoryEntry, ReviewHistoryPage, ReviewHistoryQuery, ReviewRating, ReviewState,
     ReviewStatistics, ReviewUpdate, StorageAdapter, WordId, WordRecord, MIN_EASE_FACTOR,
 };
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, ErrorCode, OptionalExtension, TransactionBehavior};
 
 use crate::SqliteError;
 
 const SCHEMA_VERSION: i64 = 2;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+const INITIALIZATION_RETRY_DELAYS: [Duration; 5] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(40),
+    Duration::from_millis(80),
+    Duration::from_millis(160),
+];
 
 pub struct SqliteStorage {
     connection: Connection,
@@ -39,12 +46,40 @@ impl SqliteStorage {
 
     fn from_connection(mut connection: Connection) -> Result<Self, SqliteError> {
         connection.busy_timeout(BUSY_TIMEOUT)?;
-        connection.pragma_update(None, "foreign_keys", "ON")?;
-        let _: String = connection.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
-        connection.pragma_update(None, "synchronous", "NORMAL")?;
-        migrate(&mut connection)?;
+        initialize_connection(&mut connection)?;
         Ok(Self { connection })
     }
+}
+
+fn initialize_connection(connection: &mut Connection) -> Result<(), SqliteError> {
+    let mut retry_delays = INITIALIZATION_RETRY_DELAYS.into_iter();
+    loop {
+        match initialize_connection_once(connection) {
+            Ok(()) => return Ok(()),
+            Err(error) if is_database_busy(&error) => {
+                let Some(delay) = retry_delays.next() else {
+                    return Err(error);
+                };
+                std::thread::sleep(delay);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn initialize_connection_once(connection: &mut Connection) -> Result<(), SqliteError> {
+    connection.pragma_update(None, "foreign_keys", "ON")?;
+    let _: String = connection.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
+    connection.pragma_update(None, "synchronous", "NORMAL")?;
+    migrate(connection)
+}
+
+fn is_database_busy(error: &SqliteError) -> bool {
+    matches!(
+        error,
+        SqliteError::Database(rusqlite::Error::SqliteFailure(sqlite_error, _))
+            if sqlite_error.code == ErrorCode::DatabaseBusy
+    )
 }
 
 impl StorageAdapter for SqliteStorage {
