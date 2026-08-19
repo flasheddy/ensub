@@ -4,6 +4,10 @@ Ensub is organized as portable policy and contracts surrounded by platform
 adapters and presentation surfaces. The dependency direction is inward:
 domain crates do not import UI or persistence implementations.
 
+The PWA/Web Player is feature complete and frozen at v0.2.0 as a reference
+prototype; native Android is the active client track. See
+[Platform Status](platform-status.md) for the lifecycle and regression policy.
+
 ```mermaid
 flowchart TB
     cli["ensub-cli / esb"] --> core["core_engine"]
@@ -58,8 +62,8 @@ flowchart TB
 | `crates/tui` | `ensub-tui` | Ratatui reader/review model, event loop, effects, terminal safety, and rendering |
 | `crates/cosmic_gui` | `ensub-gui` | COSMIC application state, native effects, GUI reader, library, dashboard, capture HUD, and review views |
 | `crates/cosmic_applet` | `ensub-applet` | COSMIC panel badge, popover review state, and capture-HUD launcher |
-| `crates/wasm_bridge` | `ensub-wasm` | Browser DTOs, standalone ingestion bindings, versioned snapshot adapter, and `localStorage` backend |
-| `crates/web_player` | none | Installable audio workspace, synchronized transcript DOM, IndexedDB player cache, and Web Locks coordination |
+| `crates/wasm_bridge` | `ensub-wasm` | Frozen v0.2.0 browser adapter: DTOs, standalone ingestion bindings, versioned snapshot adapter, and `localStorage` backend; maintenance and regression only |
+| `crates/web_player` | none | Frozen v0.2.0 reference PWA: installable audio workspace, synchronized transcript DOM, IndexedDB player cache, and Web Locks coordination; no new client features |
 | `crates/web_sandbox` | none | Offline static Ensub Core reference harness, bundled WASM/lexicon assets, Web Locks coordination, and service worker |
 | `crates/web_site` | none | Separate optional Ensub Context assistant using anonymous Supabase sessions and an authenticated LLM Edge Function |
 | `tools/lexicon_builder` | `ensub-lexicon-builder` | Reproducible native and browser lexicon artifact generation |

@@ -112,6 +112,13 @@ The WASM tree must not contain `rusqlite`, `libcosmic`, `ensub-gui`, or
 
 ## Ensub Player
 
+The Ensub Player and its `ensub-wasm` adapter are feature complete and frozen
+at v0.2.0. The commands and tests in this section remain mandatory regression
+checks for applicable shared-core changes. Do not delete, weaken, skip, or
+replace existing PWA/WASM coverage solely because native Android is now the
+active client track. See [Platform Status](platform-status.md) for the allowed
+maintenance scope.
+
 The player build compiles the shared WASM package, generates theme CSS, copies
 the versioned browser lexicon sidecars, copies the complete Player asset tree,
 and verifies a fully precached PWA:

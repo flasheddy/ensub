@@ -3,14 +3,34 @@
 | | |
 |---|---|
 | **Product** | Ensub (`esb`) |
-| **Milestone** | Milestone 5 |
+| **Milestone** | Milestone 5 (PWA / Web Player) |
 | **Target release** | v0.2.0 |
-| **Status** | Milestone 5 complete and verified |
+| **Status** | Feature Complete & Frozen (Reference Prototype) |
 | **Stable baseline** | Ensub Core v0.1.0 delivered and stable |
 | **Verified repository baseline** | v0.1.0-rc1 merged and verified on `main` |
-| **Primary surface** | Installable PWA/web player powered by `ensub-wasm` |
-| **Date** | 2026-08-17 |
+| **Primary surface** | v0.2.0 reference PWA/web player powered by `ensub-wasm` |
+| **Active milestone** | Milestone 6: Native Android Client |
+| **Active client stack** | Kotlin / Jetpack Compose / Media3 + UniFFI |
+| **Date** | 2026-08-19 |
 | **Supersedes** | [Ensub v0.1.0 PRD and legacy roadmap](archive/ensub-prd-v0.1.0.md) |
+
+---
+
+## Product Track Transition
+
+Milestone 5 is feature complete and frozen at v0.2.0 as Ensub's reference
+prototype for synchronized podcast playback, transcript ingestion, offline
+lookup, contextual capture, and review. The requirements and release gates
+below are retained as the historical v0.2.0 acceptance contract; they are not
+an active backlog for new PWA or Web Player features.
+
+Milestone 6, the **Native Android Client**, is now the active client milestone.
+It will use Kotlin and Jetpack Compose for the application and UI, Media3 for
+playback and media-session integration, and UniFFI bindings to reuse portable
+Rust policy from `core_engine` and `language_engine`. The PWA remains buildable
+and tested as a regression reference while client feature development moves to
+Android. See [Platform Status](../docs/platform-status.md) for the maintenance
+and regression policy.
 
 ---
 

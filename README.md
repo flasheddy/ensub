@@ -10,7 +10,9 @@ an offline definition, pronunciation, source context, and deterministic SM-2
 review schedule.
 
 Ensub Core v0.1.0 is delivered and stable; `v0.1.0-rc1` is the verified
-repository baseline from which the v0.2.0 interactive Player is built.
+repository baseline from which the v0.2.0 interactive Player was built. The
+PWA/Web Player is now feature complete and frozen as a reference prototype,
+and native Android is the active client track.
 
 The same Rust domain and language engines power a command-line interface, a
 terminal reader, a native COSMIC desktop application and panel applet, and the
@@ -30,7 +32,7 @@ The repository includes these implemented surfaces:
 | TUI | `esb tui [FILE]` | Read Markdown or plain text, inspect and capture words, run quick reviews |
 | COSMIC GUI | `ensub-gui` | Dashboard, vocabulary library, document reader, text capture, and review sessions |
 | COSMIC applet | `ensub-applet` | Due-count badge, one-card review popover, and clipboard capture HUD |
-| Ensub Player | `crates/web_player` | Installable podcast audio workspace with synchronized, locally cached transcripts |
+| Ensub Player | `crates/web_player` | Frozen v0.2.0 reference PWA with synchronized, locally cached podcast transcripts; maintenance and regression only |
 | Ensub Core sandbox | `crates/web_sandbox` | Offline real-lexicon parsing, capture, SRS review, snapshots, and multi-tab coordination |
 | Ensub Context | `crates/web_site` | Optional online contextual analysis and private cloud-backed capture history |
 
@@ -117,6 +119,7 @@ and the contextual web assistant setup.
 | [User Guide](docs/user-guide.md) | CLI options, TUI keys, GUI navigation, applet, and web workflows |
 | [Architecture](docs/architecture.md) | Crate boundaries, data flow, storage adapters, and concurrency model |
 | [Development](docs/development.md) | Workspace layout, validation commands, tests, web builds, and release builds |
+| [Platform Status](docs/platform-status.md) | Frozen PWA/WASM scope, regression policy, and active native Android track |
 | [Data and Privacy](docs/data-and-privacy.md) | Native and browser storage, path overrides, concurrency, backup, and reset behavior |
 | [v0.2.0 Release Audit](docs/release-v0.2.0-audit.md) | PRD acceptance criteria, release-gate evidence, and tag preconditions |
 | [Offline Lexicon](docs/lexicon.md) | Corpus provenance, generated artifacts, extraction, and regeneration |
