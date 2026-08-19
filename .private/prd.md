@@ -152,9 +152,13 @@ Spike 2 turns the proof into an Android-correct playback subsystem.
   play/pause, seeking, and available episode navigation consistently.
 - Media button, headset, Bluetooth, notification, lock-screen, and in-app
   commands converge on the same media session.
-- Audio focus gain and loss are explicit. Transient duck requests reduce volume;
-  call-like or non-duckable interruptions pause playback; automatic resume is
-  allowed only when Ensub itself paused for a transient focus loss.
+- Media3 is the sole audio-focus owner. The player uses media/speech audio
+  attributes with `handleAudioFocus = true`; Ensub must not make a second
+  `AudioManager.requestAudioFocus` request, install a competing focus listener,
+  or apply its own duck-volume multiplier. Because podcast audio is speech,
+  transient duck and call-like requests suppress playback rather than allowing
+  spoken content to continue inaudibly. Resume remains conditional on the
+  player's retained `playWhenReady` intent.
 - `AudioManager.ACTION_AUDIO_BECOMING_NOISY` pauses playback before audio can
   unexpectedly move from a disconnected private route to device speakers.
 - Detaching, recreating, or reattaching the Activity does not reset playback.
@@ -165,12 +169,61 @@ Spike 2 turns the proof into an Android-correct playback subsystem.
 - Service and controller errors are surfaced as typed UI states without
   terminating the process or leaving a stale notification.
 
+#### Deterministic Test Contract
+
+Audio-focus tests assert observable Media3 and session state rather than
+reimplementing Android focus callbacks in application policy. JVM tests map
+immutable `Player` snapshots into service/UI state. Connected instrumentation
+tests create a competing focus owner and verify Media3's transitions with the
+configured speech attributes. Physical-device checks cover system surfaces and
+interruptions that an emulator cannot reproduce faithfully.
+
+The required focus matrix is:
+
+| Initial condition | Focus or route event | Required observable result | Minimum verification |
+|---|---|---|---|
+| Playing with focus | `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` or `AUDIOFOCUS_LOSS_TRANSIENT` | Media3 retains play intent but suppresses speech playback; `isPlaying = false`, progress polling stops, and system surfaces must not claim playback | JVM snapshot-mapper test, connected competing-focus test, and physical duck/call check |
+| Suppressed with retained play intent | `AUDIOFOCUS_GAIN` with no intervening user command | Suppression clears and Media3 resumes once from the current position | Connected competing-focus test |
+| Suppressed with retained play intent | User pause, stop, or episode change before gain | The user command clears or replaces play intent; later gain must not restart the prior item | Connected competing-focus test |
+| Any playing or suppressed state | `AUDIOFOCUS_LOSS` | Media3 clears play intent, reports not playing, and never auto-resumes on a later gain | Connected competing-focus test |
+| Playing | `ACTION_AUDIO_BECOMING_NOISY` | Ensub issues pause through the player and clears play intent | JVM receiver-command test, connected broadcast test, and physical wired/Bluetooth route check |
+| Paused without focus | Focus request is delayed or denied | Media3 1.7.1 treats every non-granted result as do-not-play: remain paused, clear pending play intent, and expose a recoverable focus-unavailable state | Connected API 26 and API 37 test |
+
+Media3 1.7.1 does not opt into delayed focus gain, so Ensub has no application-
+level pending-focus state and must not start on a later unsolicited gain. A
+future Media3 upgrade that accepts delayed gain is a playback-contract change
+and requires an updated matrix and connected tests before adoption.
+
+The player-to-session mapping is also a fixed contract:
+
+| Media3 source state | Controller and system-surface state | Required side effect | Minimum verification |
+|---|---|---|---|
+| No current media item | Empty timeline, no stale metadata, `isPlaying = false` | Do not retain a stale media notification | JVM mapper test and connected instrumentation test |
+| Current item in `STATE_IDLE` | Current metadata with idle/not-playing state | Await prepare or an explicit play command | JVM mapper test |
+| `STATE_BUFFERING` | Buffering and `isPlaying = false`, preserving current metadata and position | Keep the session controllable without claiming playback has advanced | JVM mapper test and connected instrumentation test |
+| `STATE_READY` with `playWhenReady = false` | Paused and `isPlaying = false` | Preserve resumable position | JVM mapper test and connected instrumentation test |
+| `STATE_READY` with `playWhenReady = true` and suppression reason none | Playing and `isPlaying = true` | Publish current commands, metadata, and position | JVM mapper test, connected instrumentation test, and physical notification/lock-screen check |
+| `STATE_READY` with `playWhenReady = true` and a non-none suppression reason | Suppressed/waiting and `isPlaying = false` | Preserve play intent and position, stop progress polling, and do not advertise active playback | JVM mapper test and connected transient-focus test |
+| `STATE_ENDED` | Ended and `isPlaying = false` | Mark completion, flush final progress, and do not auto-restart | JVM mapper test and connected instrumentation test |
+| Player error | Error/not-playing with the last valid item identity and typed cause | Stop advancing progress, clear stale play state, and expose retry or dismissal | JVM mapper test and connected instrumentation test |
+| Controller disconnect and reconnect while the service lives | Service/player state remains unchanged; the new controller receives the current timeline, metadata, commands, position, and play state | Do not create a player or infer a user pause from disconnection | Connected instrumentation test |
+
+Media-session tests must additionally prove that two controllers observe and
+command the same player instance, commands and metadata agree across Compose
+and system surfaces, seek discontinuities trigger immediate Rust cue
+synchronization, Activity recreation does not create another player, and a
+reconnected controller receives the authoritative service snapshot before
+periodic UI updates resume. Connected tests run on API 26 and API 37; the
+OnePlus Ace Pro remains the `arm64-v8a` physical reference for lock-screen,
+notification, call, headset, and Bluetooth checks.
+
 #### Exit Criteria
 
 - Playback remains controllable after backgrounding and screen lock.
 - Notification and lock-screen metadata and controls agree with in-app state.
-- Focus duck, transient pause/resume, permanent loss, and incoming-call paths
-  are covered by deterministic state tests and physical-device checks.
+- Speech handling for duck requests, denied focus, transient suppression and
+  resume, permanent loss, and incoming-call paths is covered by the required
+  mapper, connected, and physical-device checks.
 - A becoming-noisy broadcast pauses an actively playing episode.
 - Activity recreation and repeated detach/reattach cycles retain episode,
   position, play state, and active-cue synchronization.
@@ -191,7 +244,7 @@ state and real network ingestion.
   and history records.
 - Schema v3 persists normalized feed identity, episode identity and aliases,
   enclosure metadata, transcript provenance, normalized cues, playback
-  progress, and podcast capture context.
+  progress and completion state, and podcast capture context.
 - Concurrent or repeated initialization is idempotent. Migration failure rolls
   back cleanly and returns a typed error without exposing a partially upgraded
   database.
@@ -307,6 +360,56 @@ an immediate position read and Rust synchronization before periodic observation
 resumes. Battery use must not depend on a continuously running Activity timer
 while the UI is detached.
 
+### 7.1 Playback Progress Persistence
+
+The service keeps the live position in memory and persists progress through a
+coalescing writer outside the main thread. During active playback, it schedules
+one routine checkpoint attempt after every 10 seconds of monotonic elapsed
+time. Only the latest unsent routine position for an episode may be pending,
+and routine attempts must never be scheduled more frequently than once per 10
+seconds.
+
+A healthy sink accepts each request and completes its durable write within two
+seconds. While the sink is healthy, the maximum durable-progress lag during
+continuous playback is therefore 12 seconds: the 10-second scheduling interval
+plus the two-second writer bound.
+
+The service makes an immediate, non-debounced persistence request after a
+completed seek, pause, stop, episode transition, playback end, and orderly
+service shutdown. "Immediate" means the current snapshot is enqueued during
+handling of that event; it does not mean blocking the player or main thread on
+SQLite. The request may supersede an older unsent snapshot for the same episode
+but must not wait for the next routine boundary or a timed coalescing window.
+
+An episode transition synchronously captures the outgoing snapshot and
+enqueues it ahead of any incoming-episode checkpoint; the two identities must
+never be coalesced. A failed outgoing write remains pending under its own
+identity and does not block playback of the incoming episode. Activity detach
+alone does not request persistence because the service continues to own
+playback.
+
+Progress is stored by stable internal episode identity as a clamped integer
+millisecond position plus a completion flag. A cold service start restores an
+incomplete episode at its last durable position but remains paused until an
+explicit play command. A completed episode is marked complete and begins at
+zero when the learner explicitly replays it. A rejected request or write that
+exceeds two seconds must not stop audio: the service retains the newest
+in-memory position, exposes a typed non-fatal durability-degraded state, and
+continues routine and event-driven retry attempts. The 12-second durability
+bound is suspended from the first reported failure or timeout until a later
+write succeeds; that success clears the degraded state and starts a new bound.
+
+Spike 2 implements this cadence against an injectable progress sink and proves
+it with a recording test double. Spike 3 supplies the production sink through
+the UniFFI storage facade and Rust-owned SQLite; Kotlin never persists progress
+through preferences, Room, or direct SQL.
+
+Deterministic tests use a fake monotonic clock and controllable recording store
+to prove attempts at each 10-second boundary, routine coalescing, immediate
+event enqueues, two-second completion and timeout behavior, episode-transition
+ordering, degraded-state entry and recovery, cold restore, and the 12-second
+healthy-sink process-death bound.
+
 ## 8. Storage and Migration Policy
 
 Rust owns the SQLite connection, schema version, migrations, transactions, and
@@ -326,7 +429,58 @@ Migration tests use synthetic data only. Neither application logs nor errors
 may include transcript contents, capture text, private feed credentials, or
 database contents.
 
-## 9. Offline, Privacy, and Security
+## 9. SM-2 Reference Contract
+
+The normative scheduling contract is `ensub-sm2-v1`, implemented only by
+`core_engine::schedule_review`. Android, WASM, desktop, CLI, and future adapters
+must submit the current state, validated rating, and caller-supplied UTC review
+timestamp to Rust; they must not reproduce or adjust the formula.
+
+For a rating `q` in the inclusive range 0 through 5, `ensub-sm2-v1` is:
+
+- a new card starts with ease factor `2.5`, repetitions `0`, interval `0`, no
+  last rating, and `next_review_at` equal to its supplied creation timestamp;
+- `d = 5 - q` and the new ease factor is
+  `max(1.3, old_ease + 0.1 - d * (0.08 + d * 0.02))`;
+- if `q < 3`, repetitions reset to `0` and the interval is `1` day;
+- if `q >= 3`, repetitions increment with saturation and the interval uses the
+  pre-review repetition count: `0 -> 1 day`, `1 -> 6 days`, otherwise the
+  previous interval multiplied by the pre-review ease factor and rounded to
+  the nearest whole day using Rust `f64::round` semantics (halfway values away
+  from zero); the ease factor itself is not decimal-quantized;
+- a multiplied interval is clamped to the inclusive range `1..u32::MAX`;
+- `next_review_at` is the supplied `reviewed_at` plus the resulting whole-day
+  interval, and timestamp overflow returns a typed error; and
+- the stored last rating is `q`.
+
+`crates/core_engine/tests/fixtures/sm2-v1.json` is the versioned conformance
+fixture to be added in Spike 4. It must contain the initial state and vectors
+for ratings 0 through 5, the `1 -> 6 -> rounded` progression, rating-3 use of
+the pre-review ease factor, the `1.3` ease floor, interval saturation, equal
+input determinism, invalid ratings, and timestamp overflow. The Rust unit suite
+must consume every vector. Each exported UniFFI/WASM scheduling boundary must
+consume every full-schedule vector and produce identical integer/timestamp
+fields or error categories. Ease-factor comparisons use an absolute tolerance
+of `1e-12`, matching the existing Rust reference tests, so the contract does
+not depend on decimal display formatting.
+
+The saturation case is split deliberately: a helper-level vector proves that
+interval calculation clamps to `u32::MAX`; only the Rust helper suite consumes
+that vector. A separate full `schedule_review` vector using the saturated input
+expects `ReviewDateOverflow` because Chrono cannot represent a timestamp
+millions of years in the future; Rust and every exported scheduling boundary
+consume that vector. The fixture must not claim that a saturated interval can
+produce a successful scheduled state.
+
+Committing a review is a compare-and-swap against the expected current state.
+The replacement state and immutable review-history event are persisted in one
+transaction; a stale expected state is rejected and refreshed rather than
+replaying the transition. Any change to the formula, rounding, pass boundary,
+defaults, state fields, or error semantics requires a new contract identifier,
+an explicit persisted-state compatibility decision, and updated regression
+evidence for every active or frozen adapter.
+
+## 10. Offline, Privacy, and Security
 
 - Local metadata, transcript data, lookup results, captures, and review state
   are stored in the application's private storage.
@@ -339,7 +493,7 @@ database contents.
   transcript bodies, captures, database contents, or generated secrets.
 - UniFFI inputs are validated in Rust before they affect domain state or SQL.
 
-## 10. PWA Regression Invariant
+## 11. PWA Regression Invariant
 
 The v0.2.0 PWA/Web Player and `ensub-wasm` remain frozen, buildable regression
 anchors under the policy in [Platform Status](../docs/platform-status.md).
@@ -353,9 +507,9 @@ No Milestone 6 acceptance criterion requires adding a new browser client
 feature. Browser changes are limited to maintenance, compatibility, security,
 and regression work needed to preserve the v0.2.0 reference behavior.
 
-## 11. Non-Functional Requirements
+## 12. Non-Functional Requirements
 
-### 11.1 Reliability
+### 12.1 Reliability
 
 - Normal Activity recreation, backgrounding, and controller reconnection must
   not create multiple players or lose persisted learning state.
@@ -364,7 +518,7 @@ and regression work needed to preserve the v0.2.0 reference behavior.
 - Writes that span word, context, podcast provenance, or review transition
   records are atomic.
 
-### 11.2 Performance and Battery
+### 12.2 Performance and Battery
 
 - Cue selection remains indexed or equivalently bounded and must not linearly
   scan a full transcript on each playback update.
@@ -373,25 +527,34 @@ and regression work needed to preserve the v0.2.0 reference behavior.
   is detached.
 - Network and database work do not run on the Compose main thread.
 
-### 11.3 Accessibility
+### 12.3 Accessibility
 
 - Player, notification, lookup, capture, and review controls expose meaningful
   labels, roles, enabled state, and focus order.
 - Active cues are not communicated by color alone.
 - Text scaling does not hide playback, lookup, capture, or rating controls.
 
-### 11.4 Testability
+### 12.4 Testability
 
 - Portable policies use fixture-driven or table-driven Rust tests.
 - UniFFI DTOs and errors have Rust and Kotlin contract coverage.
-- Media session, controller mapping, focus transitions, noisy-route behavior,
-  and UI reconnection have deterministic Kotlin tests where framework seams
-  permit them.
+- Player-to-session mapping is covered by exhaustive JVM snapshot vectors;
+  Media3 focus ownership, denied/transient/permanent focus behavior, service,
+  controller, noisy-route, and UI reconnection are covered by connected tests
+  on API 26 and API 37.
+- Physical-device evidence covers notification, lock-screen, incoming-call,
+  wired-headset, Bluetooth-route, and detached-UI behavior on `arm64-v8a`.
+- Playback-progress cadence uses a fake clock and recording store to prove
+  10-second attempts, immediate event requests, two-second writer behavior,
+  the healthy-sink durability bound, degraded-state recovery, and cold restore.
+- The Rust suite consumes every `ensub-sm2-v1` conformance vector; every
+  exported scheduling boundary consumes the full-schedule subset without
+  platform-specific expectations.
 - Android lint, unit tests, APK assembly, and instrumentation APK assembly run
   in CI; physical-device checks provide release evidence for behaviors that
   cannot be established by build-only CI.
 
-## 12. Acceptance Criteria
+## 13. Acceptance Criteria
 
 Milestone 6 is accepted only when all of the following are true:
 
@@ -401,32 +564,43 @@ Milestone 6 is accepted only when all of the following are true:
    continues when the Activity is backgrounded or destroyed.
 3. In-app, notification, lock-screen, headset, and Bluetooth controls reflect
    and manipulate one coherent media-session state.
-4. Audio-focus duck, pause, conditional resume, permanent loss, incoming-call,
-   and becoming-noisy paths follow the Spike 2 policy.
+4. Speech suppression for duck requests, denied focus, conditional resume,
+   permanent loss, incoming-call, and becoming-noisy paths follow the Spike 2
+   policy.
 5. A recreated or reattached UI renders the current episode, playback state,
    position, and Rust-selected active cues without resetting playback.
-6. A synthetic schema-v2 database migrates to v3 without losing existing word,
+6. The player-to-session matrix passes as JVM snapshot tests, the focus and
+   service matrix passes as connected API 26 and API 37 tests, and the listed
+   notification, lock-screen, call, headset, and Bluetooth cases pass on the
+   physical reference device.
+7. Active playback schedules one routine persistence attempt per 10 seconds,
+   event-driven requests bypass debounce, and a healthy sink completes each
+   write within two seconds. The documented 12-second durability bound holds
+   while healthy and is visibly suspended after failure until a retry succeeds.
+8. A synthetic schema-v2 database migrates to v3 without losing existing word,
    context, review, history, or library state; a forced migration failure rolls
    back to a recoverable v2 database.
-7. Kotlin fetches a synthetic RSS 2.0 feed and transcript while Rust discovers,
+9. Kotlin fetches a synthetic RSS 2.0 feed and transcript while Rust discovers,
    parses, normalizes, and persists the podcast records.
-8. Persisted feed, episode, transcript, and playback metadata can be reopened
+10. Persisted feed, episode, transcript, and playback metadata can be reopened
    and rendered without refetching those resources.
-9. Tapping a Rust-produced token span returns local lexicon results without a
+11. Tapping a Rust-produced token span returns local lexicon results without a
    network request, including punctuation and non-ASCII fixture coverage.
-10. One explicit action stores a contextual capture with stable episode,
+12. One explicit action stores a contextual capture with stable episode,
     transcript, cue, sentence, playback-position, and padded-audio provenance.
-11. A due podcast card replays only its saved range, accepts a 0-5 rating, and
-    persists the shared SM-2 transition without leaving the player.
-12. Missing audio degrades review to text without preventing rating or
+13. A due podcast card replays only its saved range, accepts a 0-5 rating, and
+    persists the `ensub-sm2-v1` transition without leaving the player; every
+    native and WASM scheduling boundary passes the full-schedule conformance
+    vectors.
+14. Missing audio degrades review to text without preventing rating or
     corrupting scheduling state.
-13. The end-to-end immersion journey passes on a physical `arm64-v8a` device.
-14. Android CI and all applicable workspace, WASM, PWA, storage, and secret
+15. The end-to-end immersion journey passes on a physical `arm64-v8a` device.
+16. Android CI and all applicable workspace, WASM, PWA, storage, and secret
     verification suites pass from a clean checkout.
-15. No Android-specific UI, lifecycle, transport, notification, audio-focus,
+17. No Android-specific UI, lifecycle, transport, notification, audio-focus,
     or database-driver dependency enters `core_engine` or `language_engine`.
 
-## 13. Out of Scope for v0.3.0
+## 14. Out of Scope for v0.3.0
 
 - iOS, Kotlin Multiplatform, or a second native mobile client;
 - Google Play publication, alternative-store publication, or a committed
@@ -440,7 +614,7 @@ Milestone 6 is accepted only when all of the following are true:
 - new PWA/Web Player client features; and
 - new desktop, applet, TUI, CLI, or browser-extension product workflows.
 
-## 14. Delivery Order
+## 15. Delivery Order
 
 1. **M6.1 / Spike 1 - Delivered baseline:** preserve the verified Compose,
    UniFFI, Media3, cue synchronization, ABI, and hardware foundation.
@@ -456,7 +630,7 @@ Milestone 6 is accepted only when all of the following are true:
 Each slice must leave Android buildable, the Rust cores independently testable,
 and the PWA/WASM reference baseline green.
 
-## 15. Release Gates
+## 16. Release Gates
 
 Before v0.3.0 is considered complete:
 
@@ -465,11 +639,17 @@ Before v0.3.0 is considered complete:
 - Rust formatting, workspace check, warning-free Clippy, workspace tests, and
   dependency-boundary inspections pass;
 - Android UniFFI generation, both ABI builds, Kotlin unit tests, Android lint,
-  debug and release APK assembly, and instrumentation APK assembly pass from a
-  clean checkout;
+  debug and release APK assembly, instrumentation APK assembly, and connected
+  Spike 2 tests on API 26 and API 37 pass from a clean checkout;
 - Spike 2 and the complete immersion journey pass on a physical `arm64-v8a`
   device, including screen-lock, focus-interruption, route-change, and Activity
   reconnection cases;
+- playback checkpoint cadence, immediate event requests, two-second sink
+  behavior, healthy-sink process-death loss, degraded-state recovery, and cold
+  restoration are covered by deterministic fake-clock tests;
+- all `ensub-sm2-v1` fixture vectors pass through `core_engine`, the
+  full-schedule subset passes through UniFFI and WASM, and persisted review
+  commits retain compare-and-swap atomicity;
 - schema v2 to v3 forward migration, idempotent reopen, rollback recovery, and
   newer-schema rejection are tested;
 - the complete WASM and PWA regression suite required by
