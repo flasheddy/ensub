@@ -150,6 +150,28 @@ Spike 2 turns the proof into an Android-correct playback subsystem.
   competing player instance.
 - A system media notification and lock-screen surface expose playback state,
   play/pause, seeking, and available episode navigation consistently.
+- The merged Android manifest declares
+  `android.permission.FOREGROUND_SERVICE`, declares
+  `android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK` for API 34 and newer,
+  declares `android.permission.POST_NOTIFICATIONS` for API 33 and newer, and
+  registers `dev.ensub.android.player.EnsubMediaSessionService` with
+  `android:foregroundServiceType="mediaPlayback"`, `android:exported="true"`,
+  and the `androidx.media3.session.MediaSessionService` intent action. These are
+  build- and manifest-test invariants rather than runtime feature flags.
+- Because the service is exported for platform and trusted-controller
+  discovery, its `MediaSession.Callback.onConnect` accepts standard transport
+  commands only from the same application or a trusted controller. App-specific
+  custom commands are same-UID only, and every other controller is rejected
+  without exposing file paths, source URLs, transcript data, or storage calls.
+- Playback that promotes the service to the foreground originates from an
+  allowed user or MediaSession action, supplies the required media notification,
+  and calls foreground promotion within the Android platform deadline. Ensub
+  does not use an unrelated foreground-service type to bypass start limits.
+- On API 33 and newer, playback and service startup never depend on a
+  `POST_NOTIFICATIONS` grant. If Ensub requests that permission for notification
+  behavior beyond the exempt media session, it does so from an explicit UI
+  action, records denial without repeatedly prompting, and continues playback
+  without an exception, restart loop, or degraded transport controls.
 - Media button, headset, Bluetooth, notification, lock-screen, and in-app
   commands converge on the same media session.
 - Media3 is the sole audio-focus owner. The player uses media/speech audio
@@ -217,6 +239,16 @@ periodic UI updates resume. Connected tests run on API 26 and API 37; the
 OnePlus Ace Pro remains the `arm64-v8a` physical reference for lock-screen,
 notification, call, headset, and Bluetooth checks.
 
+Manifest tests inspect the merged manifest for all three permissions, the exact
+service component, exported policy, Media3 intent action, and `mediaPlayback`
+service type. Controller tests prove same-app and trusted standard transport,
+same-UID custom-command access, and rejection of untrusted controllers.
+Connected API 33 and API 37 tests exercise both granted and denied notification-
+permission states. Denial must not prevent a user-initiated play command,
+foreground promotion, controller reconnection, or service-owned playback;
+tests assert the system surfaces Android makes available in that permission
+state rather than inventing an app-owned fallback notification.
+
 #### Exit Criteria
 
 - Playback remains controllable after backgrounding and screen lock.
@@ -227,6 +259,12 @@ notification, call, headset, and Bluetooth checks.
 - A becoming-noisy broadcast pauses an actively playing episode.
 - Activity recreation and repeated detach/reattach cycles retain episode,
   position, play state, and active-cue synchronization.
+- The merged manifest and API 33+ permission-state tests satisfy the foreground-
+  service and notification-denial contract.
+- A paused and fully idle service tears down after the bounded policy in
+  Section 7.2. Active, buffering, and focus-suppressed states remain alive while
+  the process survives; a degraded persistence retry cannot prevent eventual
+  idle teardown.
 - Android unit tests, lint, APK assembly, instrumentation APK assembly, and the
   repository Android CI job pass.
 
@@ -249,8 +287,9 @@ state and real network ingestion.
   back cleanly and returns a typed error without exposing a partially upgraded
   database.
 - Kotlin owns HTTP transport, connectivity state, redirects, and Android
-  network policy. It passes response bytes, final source URLs, content types,
-  and transport failures across the mobile facade.
+  network policy. It passes successful response bytes, final source URLs, and
+  content types across the mobile facade. Transport failures remain Kotlin-
+  owned and are not reclassified as Rust parsing failures.
 - Rust owns RSS 2.0 parsing, Podcasting 2.0 transcript discovery, deterministic
   episode identity, alias reconciliation, and WebVTT/SRT normalization.
 - Unsupported transcript types, malformed feeds, malformed captions, network
@@ -258,6 +297,48 @@ state and real network ingestion.
 - Previously persisted episode metadata and transcripts are readable without a
   network request. Whole-episode audio download management is not required by
   this slice.
+- Kotlin owns one process-wide, app-private Media3 `SimpleCache`, exposed to
+  players through `CacheDataSource` and bounded by a 256 MiB least-recently-used
+  evictor under `context.cacheDir/ensub-media-v1`. Its `CacheKeyFactory` uses an
+  opaque SHA-256 digest of stable episode identity plus a Rust-issued media-
+  resource revision derived from the selected enclosure generation and source
+  metadata supplied through the facade. Kotlin supplies newly observed `ETag`
+  or `Last-Modified` validators to the revision operation. Raw URLs never appear
+  in cache keys; any enclosure alias, representation, or validator change
+  produces a new revision and invalidates the older cache generation.
+- A cache miss may cause the upstream Media3 data source to issue an HTTP range
+  request. A feed or enclosure is not rejected merely because its server omits
+  `Accept-Ranges`, ignores a range, or returns `200` instead of `206`. Ordinary
+  episode listening may continue sequential streaming, but a review-only load
+  that receives `200` for a nonzero range aborts before more than 2 MiB of pre-
+  slice bytes are transferred and falls back to saved text. Ensub never starts
+  an unbounded sequential transfer or materializes a clip file solely to make a
+  short review slice available.
+- Cached audio is disposable transport data, not durable capture state. It is
+  stored only in the platform non-backup `cacheDir`, can be cleared without
+  losing podcast metadata or learning history, and is released with the process-
+  wide cache owner rather than opened independently by each player.
+
+#### Network Retry Contract
+
+Every request has exactly one retry owner. The Kotlin ingestion client owns
+retries for idempotent feed and transcript `GET` requests, and its HTTP client's
+automatic connection retry is disabled. A custom Media3
+`LoadErrorHandlingPolicy` is the sole retry owner for enclosure and cache-miss
+loads, and its upstream HTTP stack is configured for one attempt per load.
+Each operation is limited to three total attempts: the initial request and at
+most two retries. Retryable failures are connection resets, timeouts, and HTTP
+`408`, `429`, `500`, `502`, `503`, and `504`. Other `4xx` responses, certificate
+or hostname failures, malformed redirect targets, and policy rejections fail
+without an automatic retry.
+
+Without `Retry-After`, retries use exponential delays of 500 milliseconds and
+one second with full jitter from zero through the selected delay. A valid
+`Retry-After` replaces that delay but is capped at 30 seconds. Cancellation
+interrupts requests and pending delays immediately. A known-offline state
+returns a typed offline result without running a background retry loop; a later
+user action starts a new bounded operation. Rust parser, validation, migration,
+and storage failures never enter the HTTP retry loop.
 
 #### Exit Criteria
 
@@ -267,6 +348,19 @@ state and real network ingestion.
   native and WASM adapters where their public behavior overlaps.
 - A synthetic transcript-enabled feed can be fetched, parsed, stored, closed,
   reopened, and rendered from local data on Android.
+- Fake-transport and fake-clock tests prove the retryable status set, three-
+  attempt bound, jitter bounds, `Retry-After` cap, cancellation, offline result,
+  and exclusion of parser and storage failures from transport retries. Fake
+  HTTP-server request counts, rather than wrapper counters alone, prove that
+  ingestion and Media3 do not multiply attempts across retry layers.
+- Cache tests prove the 256 MiB LRU bound, stable redacted cache keys, offline
+  cache hits, source-revision invalidation, eviction-safe fallback, the 2 MiB
+  review-miss transfer bound, `cacheDir` placement, and cache clearing without
+  deletion of durable Rust-owned state.
+- Merged-manifest, extraction-rule, and cache-path tests prove the configured
+  defense-in-depth policy for SQLite, captures, transcripts, lexicon assets,
+  and media-cache bytes before production storage is accepted; they do not
+  claim to certify every OEM transfer implementation.
 - Kotlin contains no podcast parser, cue parser, SQL statement, schema number,
   or scheduling rule.
 
@@ -291,9 +385,36 @@ foundations.
   prompt and reveal states, and replays only the saved audio range through the
   service-owned player.
 - Ratings are restricted to integers from 0 through 5. Rust computes and
-  persists the shared SM-2 transition and advances the queue atomically.
+  persists the shared SM-2 state-and-history transition atomically; Kotlin
+  advances its derived presentation queue only after that commit succeeds.
 - Missing or unreachable audio degrades a review card to saved text while
   preserving the ability to rate it and protecting stored review state.
+- A cache hit replays the saved range without network access. On a cache miss,
+  Media3 may request the relevant upstream bytes; if seeking is unsupported,
+  the bytes were evicted, or the device is offline, review remains text-capable
+  and rateable without downloading the whole episode or creating a clip file.
+
+#### Review Queue and Auto-Advance Contract
+
+Opening review captures one immutable UTC `as_of` timestamp and loads batches
+of at most 20 cards ordered by `next_review_at ASC`, then stable `word_id ASC`.
+Every reload in that review session uses the original cutoff, so cards that
+become due after the session opens do not appear until a new session.
+
+A rating disables duplicate submission and advances only after the facade
+reports the successful atomic state-and-history commit corresponding to core
+`ReviewUpdate::Updated`. Advancement cancels the outgoing snippet and presents
+the next card in prompt state; it does not auto-reveal, auto-play audio, or
+synthesize a rating. A storage or FFI failure leaves the current card revealed
+and retryable without advancing. The facade exports core
+`ReviewUpdate::Conflict` as `MobileErrorCategory::ReviewConflict`; Android then
+discards the stale submitted transition, reloads using the original cutoff,
+and never replays the rating automatically.
+
+When the current batch is exhausted, Android reloads with the same cutoff. An
+empty reload completes the session; otherwise the first returned card becomes
+the prompt. Context selection, snippet availability, snippet replay, and cache
+state never change queue ordering, eligibility, or scheduling.
 
 #### Exit Criteria
 
@@ -301,6 +422,15 @@ foundations.
 - Capture round trips preserve structured podcast and audio-slice provenance.
 - Review tests prove audio-range stopping behavior and shared SM-2 scheduling
   outcomes for all allowed ratings.
+- Queue tests prove the fixed cutoff and tie-break order, successful-only
+  advancement, duplicate-submit suppression, failure retention, conflict
+  refresh, batch reload, empty completion, and absence of automatic reveal or
+  snippet playback.
+- Cached slices replay with network disabled; missing or evicted bytes preserve
+  text review, rating, and scheduling behavior.
+- TalkBack, Compose semantics, deterministic focus traversal, 200 percent font
+  scaling, and non-color-only state pass the accessibility contract in Section
+  12.3 on an emulator and the physical reference device.
 - The complete add, listen, lookup, capture, close, reopen, and review journey
   passes on a physical `arm64-v8a` device.
 
@@ -308,12 +438,12 @@ foundations.
 
 | Capability | Rust ownership | Kotlin / Android ownership |
 |---|---|---|
-| Podcast and transcript data | RSS 2.0 parsing, transcript discovery, WebVTT/SRT parsing, normalization, validation, identity and alias policy | HTTP transport, redirects, connectivity, Android network policy, user-facing error presentation |
+| Podcast and transcript data | RSS 2.0 parsing, transcript discovery, WebVTT/SRT parsing, normalization, validation, identity and alias policy, media-resource revision | HTTP transport, redirects, response validators, connectivity, Android network policy, user-facing error presentation |
 | Synchronization | Cue model, indexed cue selection, overlap and gap semantics, time-range math | Media3 position observation, render cadence, scrolling, Compose presentation |
 | Language | Token spans, normalization, morphology, lexicon lookup, ranked local results | Tap handling, panels, focus, accessibility, presentation state |
 | Capture and review | Context construction, padded slices, SM-2 policy, rating validation, queue and transition rules | Explicit commands, review UI, Media3 slice playback |
 | Persistence | SQLite schema, migrations, transactions, queries, durable podcast and learning records | Database path selection, lifecycle calls through UniFFI, platform backup policy |
-| Playback | Portable media identifiers and logical ranges only | Media3 player, `MediaSessionService`, controller, audio focus, notification, lock screen, route events |
+| Playback | Portable media identifiers and logical ranges only | Media3 player, `MediaSessionService`, controller, audio focus, notification, lock screen, route events, upstream data source, and disposable media cache |
 | FFI contract | `ensub-uniffi` facade, owned DTOs, typed errors, stable coarse-grained operations | Generated binding consumption and mapping into immutable UI state |
 
 `core_engine` and `language_engine` remain platform-independent and cannot
@@ -329,7 +459,7 @@ it must remain a thin facade rather than a second domain layer.
 The facade must:
 
 - expose owned, versionable DTOs using mobile-safe integer and string types;
-- use typed errors with stable categories and actionable detail;
+- use the typed error categories and retry guidance in Appendix A;
 - prefer session or repository objects for related operations rather than
   exposing many chatty calls across FFI;
 - keep file paths, SQL, Rust serialization layouts, and internal IDs opaque;
@@ -409,6 +539,43 @@ to prove attempts at each 10-second boundary, routine coalescing, immediate
 event enqueues, two-second completion and timeout behavior, episode-transition
 ordering, degraded-state entry and recovery, cold restore, and the 12-second
 healthy-sink process-death bound.
+
+### 7.2 Idle Service Release
+
+Foreground demotion and service destruction are separate decisions. Media3
+updates foreground and notification state as playback changes; Ensub does not
+keep foreground priority solely to preserve a paused player. While the process
+survives, 15 minutes of continuous idle triggers app-initiated teardown, which
+completes within the final two-second writer bound. Android may reclaim the non-
+foreground, unbound service or its process earlier; correctness depends on
+durable cold restoration, not on receiving the full idle window.
+
+The timer is eligible only while the player is paused, ended, or in a terminal
+error state and there is no bound Ensub UI controller, retained play intent, or
+active review snippet. Playing, buffering, preparing to play, and focus
+suppression with retained play intent are never idle. A controller connection,
+MediaSession command, new media item, play request, snippet request, or return
+to a non-eligible state cancels and resets the timer. Entering idle cancels
+nonessential upstream cache loads. An in-flight progress write retains its
+existing two-second writer bound but does not postpone timer start; an unsent or
+failed degraded-state retry does not make the service permanently non-idle.
+
+At expiry, the shutdown sequence has one total two-second off-main-thread writer
+budget. It enqueues the latest progress snapshot, superseding an older unsent
+snapshot for that episode; an already in-flight write and the final snapshot
+share the remaining budget. The service then releases the player, media session,
+audio-focus and route resources, and `SimpleCache` reference before calling
+`stopSelf`, even if the newest snapshot could not be written. An I/O failure
+must not turn the idle timeout into an unbounded resident service. A later
+command cold-starts one service, restores the last durable episode and position,
+and remains paused until an explicit play request.
+
+Fake-clock JVM tests cover timer eligibility, every reset condition, the final
+flush bound, release ordering, and failed-flush teardown. A connected test
+covers paused UI detachment, 15-minute expiry through an injectable clock,
+service removal, one-instance restoration, and absence of autoplay. A separate
+process-death test before timer expiry proves the same paused restoration and
+does not require Android to preserve the idle service for 15 minutes.
 
 ## 8. Storage and Migration Policy
 
@@ -493,6 +660,27 @@ evidence for every active or frozen adapter.
   transcript bodies, captures, database contents, or generated secrets.
 - UniFFI inputs are validated in Rust before they affect domain state or SQL.
 
+### 10.1 Android Backup and Data Extraction
+
+The Android application sets `android:allowBackup="false"` as a tested privacy
+invariant. API 31-and-newer `dataExtractionRules` and legacy
+`fullBackupContent` rules deny the database, root, files, shared-preferences,
+and external-file domains that can contain SQLite, WAL and journal files,
+transcripts, captures, extracted lexicon assets, or diagnostics. The Media3
+cache is rooted only under `context.cacheDir/ensub-media-v1`, a platform non-
+backup cache domain that is not representable as a backup-rule XML domain.
+This defense in depth reduces unintended platform or OEM data movement; it does
+not rely on assumptions about a provider's encryption or claim control over an
+OEM that disregards Android's declared policy.
+
+Merged-manifest tests assert the disabled-backup flag and the applicable rule
+resource. Resource tests assert that durable state is covered by explicit
+domain exclusions, while a cache-path test asserts that `SimpleCache` cannot be
+constructed under `filesDir`, `noBackupFilesDir`, external storage, or another
+durable domain. Clearing or recreating the cache must never create, delete, or
+mutate durable learning state. These tests establish Ensub's configuration,
+not the runtime behavior of every Android-derived OEM backup implementation.
+
 ## 11. PWA Regression Invariant
 
 The v0.2.0 PWA/Web Player and `ensub-wasm` remain frozen, buildable regression
@@ -532,12 +720,24 @@ and regression work needed to preserve the v0.2.0 reference behavior.
 - Player, notification, lookup, capture, and review controls expose meaningful
   labels, roles, enabled state, and focus order.
 - Active cues are not communicated by color alone.
-- Text scaling does not hide playback, lookup, capture, or rating controls.
+- TalkBack traversal follows playback, transcript, lookup or review content,
+  and primary action order without trapping focus or moving focus on each
+  position update.
+- Cue synchronization does not publish a per-tick live-region announcement.
+  An explicit seek or user-focused cue may announce the resulting cue once;
+  ordinary playback highlighting remains visually updated without speech spam.
+- At 200 percent font scale, text reflows without hiding, clipping, or
+  overlapping playback, lookup, capture, reveal, or rating controls.
+- Semantics and screenshot tests run at default and 200 percent font scale;
+  TalkBack traversal, system media controls, non-color-only cue state, and cue-
+  announcement behavior are verified on an emulator and the physical reference
+  device before Spike 4 acceptance.
 
 ### 12.4 Testability
 
 - Portable policies use fixture-driven or table-driven Rust tests.
-- UniFFI DTOs and errors have Rust and Kotlin contract coverage.
+- UniFFI DTOs and errors have Rust and Kotlin contract coverage, including every
+  category-precedence vector in Appendix A.
 - Player-to-session mapping is covered by exhaustive JVM snapshot vectors;
   Media3 focus ownership, denied/transient/permanent focus behavior, service,
   controller, noisy-route, and UI reconnection are covered by connected tests
@@ -554,6 +754,22 @@ and regression work needed to preserve the v0.2.0 reference behavior.
   in CI; physical-device checks provide release evidence for behaviors that
   cannot be established by build-only CI.
 
+### 12.5 Release Integrity and Signing
+
+- M6.5 selects and documents an Android application ID, signing identity,
+  external secret provider, signer access policy, rotation procedure, and
+  recovery owner before v0.3.0 acceptance, without selecting a distribution
+  channel.
+- Private signing keys, keystore files, passwords, and provider credentials
+  never enter source control, fixtures, build caches, CI artifacts, screenshots,
+  or logs. Release signing is injected only from the approved external provider;
+  the public signer certificate and fingerprint may be retained for verification.
+- Routine CI outputs are debug-signed or unsigned and are labeled
+  non-distributable. The release-hardening gate produces a signed synthetic-
+  data release candidate and verifies its application ID, version, signer
+  certificate fingerprint, and absence of debug signing without disclosing
+  private material.
+
 ## 13. Acceptance Criteria
 
 Milestone 6 is accepted only when all of the following are true:
@@ -562,43 +778,72 @@ Milestone 6 is accepted only when all of the following are true:
    overlap and gap behavior remains unchanged.
 2. A `MediaSessionService` owns the only active Media3 player and playback
    continues when the Activity is backgrounded or destroyed.
-3. In-app, notification, lock-screen, headset, and Bluetooth controls reflect
+3. The merged manifest declares the required media-playback foreground-service
+   permissions, exact service component, action, exported policy, and type;
+   controller authorization passes and API 33+ notification denial neither
+   crashes nor blocks service-owned playback or transport commands.
+4. In-app, notification, lock-screen, headset, and Bluetooth controls reflect
    and manipulate one coherent media-session state.
-4. Speech suppression for duck requests, denied focus, conditional resume,
+5. Speech suppression for duck requests, denied focus, conditional resume,
    permanent loss, incoming-call, and becoming-noisy paths follow the Spike 2
    policy.
-5. A recreated or reattached UI renders the current episode, playback state,
+6. A recreated or reattached UI renders the current episode, playback state,
    position, and Rust-selected active cues without resetting playback.
-6. The player-to-session matrix passes as JVM snapshot tests, the focus and
+7. The player-to-session matrix passes as JVM snapshot tests, the focus and
    service matrix passes as connected API 26 and API 37 tests, and the listed
    notification, lock-screen, call, headset, and Bluetooth cases pass on the
    physical reference device.
-7. Active playback schedules one routine persistence attempt per 10 seconds,
+8. A fully idle paused service initiates teardown at 15 minutes and completes
+   within the bounded two-second final progress request if the process survives.
+   Earlier Android process death and timer-driven teardown both restore one
+   paused service; a failed progress retry cannot keep it resident indefinitely.
+9. Active playback schedules one routine persistence attempt per 10 seconds,
    event-driven requests bypass debounce, and a healthy sink completes each
    write within two seconds. The documented 12-second durability bound holds
    while healthy and is visibly suspended after failure until a retry succeeds.
-8. A synthetic schema-v2 database migrates to v3 without losing existing word,
-   context, review, history, or library state; a forced migration failure rolls
-   back to a recoverable v2 database.
-9. Kotlin fetches a synthetic RSS 2.0 feed and transcript while Rust discovers,
-   parses, normalizes, and persists the podcast records.
-10. Persisted feed, episode, transcript, and playback metadata can be reopened
+10. A synthetic schema-v2 database migrates to v3 without losing existing word,
+    context, review, history, or library state; a forced migration failure rolls
+    back to a recoverable v2 database.
+11. Kotlin fetches a synthetic RSS 2.0 feed and transcript while Rust discovers,
+    parses, normalizes, and persists the podcast records; transport retries obey
+    the bounded status, backoff, cancellation, and offline policy.
+12. The 256 MiB app-private Media3 cache serves an offline cache hit, evicts by
+    LRU, invalidates changed enclosure revisions, uses redacted stable keys,
+    bounds a range-ignoring review miss to 2 MiB of pre-slice transfer, and
+    clears without altering durable state.
+13. Persisted feed, episode, transcript, and playback metadata can be reopened
    and rendered without refetching those resources.
-11. Tapping a Rust-produced token span returns local lexicon results without a
+14. Tapping a Rust-produced token span returns local lexicon results without a
    network request, including punctuation and non-ASCII fixture coverage.
-12. One explicit action stores a contextual capture with stable episode,
+15. One explicit action stores a contextual capture with stable episode,
     transcript, cue, sentence, playback-position, and padded-audio provenance.
-13. A due podcast card replays only its saved range, accepts a 0-5 rating, and
+16. A fixed-cutoff review queue advances only after the facade reports a core
+    `ReviewUpdate::Updated`, handles `ReviewConflict` and storage failure without
+    replaying a rating, and preserves due-time and word-ID ordering across batch
+    reloads.
+17. A due podcast card replays only its saved range, accepts a 0-5 rating, and
     persists the `ensub-sm2-v1` transition without leaving the player; every
     native and WASM scheduling boundary passes the full-schedule conformance
     vectors.
-14. Missing audio degrades review to text without preventing rating or
+18. Cached slices replay offline, while missing, evicted, unreachable, or range-
+    unsupported audio degrades review to text without preventing rating or
     corrupting scheduling state.
-15. The end-to-end immersion journey passes on a physical `arm64-v8a` device.
-16. Android CI and all applicable workspace, WASM, PWA, storage, and secret
+19. Compose semantics, TalkBack traversal, cue announcements, non-color state,
+    and 200 percent text scaling meet the Spike 4 accessibility contract.
+20. Merged-manifest, extraction-rule, and cache-path tests establish the backup-
+    denial configuration and keep disposable audio under `cacheDir`, without
+    overclaiming control of every OEM transfer implementation.
+21. Every UniFFI failure exposes generated category, operation, and retry-advice
+    values; all Appendix A precedence vectors pass in Rust and Kotlin without
+    parsing an error string.
+22. The end-to-end immersion journey passes on a physical `arm64-v8a` device.
+23. Android CI and all applicable workspace, WASM, PWA, storage, and secret
     verification suites pass from a clean checkout.
-17. No Android-specific UI, lifecycle, transport, notification, audio-focus,
+24. No Android-specific UI, lifecycle, transport, notification, audio-focus,
     or database-driver dependency enters `core_engine` or `language_engine`.
+25. M6.5 proves the externally provisioned signing path with a synthetic-data
+    release candidate while routine CI artifacts remain clearly
+    non-distributable and no private signing material enters the repository.
 
 ## 14. Out of Scope for v0.3.0
 
@@ -621,11 +866,13 @@ Milestone 6 is accepted only when all of the following are true:
 2. **M6.2 / Spike 2 - Active target:** move playback into
    `MediaSessionService` and complete Android lifecycle and system integration.
 3. **M6.3 / Spike 3 - Data and ingestion:** ship SQLite v3, the mobile storage
-   facade, and real RSS/transcript ingestion.
+   facade, bounded transport retry, the private media cache, and real
+   RSS/transcript ingestion.
 4. **M6.4 / Spike 4 - Immersion loop:** complete lookup, contextual capture,
-   audio-slice playback, and in-player SM-2 review.
-5. **M6.5 - Release hardening:** close accessibility, performance, battery,
-   migration, privacy, physical-device, and regression evidence for v0.3.0.
+   audio-slice playback, deterministic review queue behavior, in-player SM-2
+   review, and accessibility acceptance.
+5. **M6.5 - Release hardening:** close performance, battery, migration,
+   privacy, signing, physical-device, and regression evidence for v0.3.0.
 
 Each slice must leave Android buildable, the Rust cores independently testable,
 and the PWA/WASM reference baseline green.
@@ -641,17 +888,33 @@ Before v0.3.0 is considered complete:
 - Android UniFFI generation, both ABI builds, Kotlin unit tests, Android lint,
   debug and release APK assembly, instrumentation APK assembly, and connected
   Spike 2 tests on API 26 and API 37 pass from a clean checkout;
+- merged-manifest checks prove the exact foreground-service declaration and
+  backup policy, controller tests prove the exported-service authorization
+  rules, and connected API 33 and API 37 tests prove notification denial does
+  not block playback;
 - Spike 2 and the complete immersion journey pass on a physical `arm64-v8a`
   device, including screen-lock, focus-interruption, route-change, and Activity
   reconnection cases;
 - playback checkpoint cadence, immediate event requests, two-second sink
   behavior, healthy-sink process-death loss, degraded-state recovery, and cold
-  restoration are covered by deterministic fake-clock tests;
+  restoration are covered by deterministic fake-clock tests, and the idle-
+  release suite proves the 15-minute eligibility and bounded teardown policy;
+- transport retry and cache suites prove the request-attempt bound, retry status
+  set, single retry owner, backoff and cancellation behavior, 256 MiB LRU limit,
+  redacted revision-aware keys, offline hit, eviction fallback, and the 2 MiB
+  range-unsupported review fallback;
 - all `ensub-sm2-v1` fixture vectors pass through `core_engine`, the
   full-schedule subset passes through UniFFI and WASM, and persisted review
-  commits retain compare-and-swap atomicity;
+  commits retain compare-and-swap atomicity and the fixed-cutoff queue contract;
+- every Appendix A error-precedence vector passes through Rust and generated
+  Kotlin mappings with stable `MobileOperation` and `RetryAdvice` values;
 - schema v2 to v3 forward migration, idempotent reopen, rollback recovery, and
   newer-schema rejection are tested;
+- accessibility evidence covers Compose semantics, TalkBack traversal, cue-
+  announcement restraint, non-color state, and 200 percent text scaling;
+- a synthetic-data release candidate is externally signed and its application
+  ID, version, signer fingerprint, and non-debug identity are verified without
+  storing or logging private signing material;
 - the complete WASM and PWA regression suite required by
   `docs/platform-status.md` remains green;
 - privacy and user documentation accurately describe network transport, local
@@ -659,3 +922,64 @@ Before v0.3.0 is considered complete:
 - the repository secret scanner passes with synthetic fixtures and no
   credentials, private feed data, personal information, or production data in
   source, tests, assets, logs, screenshots, or artifacts.
+
+## Appendix A - Mobile Facade Error Types
+
+Kotlin control flow depends on a generated `MobileErrorCategory` value and must
+never parse an exception message, Rust debug representation, or SQLite source
+string. The v0.3.0 category contract is:
+
+| Category | Meaning | Default retry advice |
+|---|---|---|
+| `InvalidArgument` | The caller supplied a value outside the facade contract | Never retry unchanged input |
+| `UnsupportedResource` | The resource kind, media form, feed feature, or transcript type is unsupported | User action or a newer client is required |
+| `ParseFailure` | Rust could not validate or normalize supplied feed or transcript bytes | Do not retry the same bytes |
+| `NotFound` | A requested stable domain object no longer exists | Refresh the owning screen or session |
+| `StaleRevision` | A session, token, or expected revision no longer matches current state | Refresh, then allow an explicit retry |
+| `ReviewConflict` | The compare-and-swap review commit lost a race | Refresh the fixed-cutoff queue; never replay the rating |
+| `StorageBusy` | SQLite remained busy beyond its bounded wait policy | Retry the same idempotent read or reopen operation with backoff |
+| `StorageUnavailable` | The database or required local asset cannot currently be opened | Retry after availability changes |
+| `MigrationFailed` | A transactional schema migration rolled back | Do not loop; retain the recoverable prior database and surface recovery |
+| `NewerSchema` | The database was created by a newer incompatible Ensub schema | Require a compatible application version |
+| `StorageIo` | A filesystem or SQLite I/O operation failed | Follow the attached retry advice; do not assume idempotence |
+| `NumericOverflow` | A time, range, counter, or conversion exceeded its supported domain | Never retry unchanged input |
+| `InternalInvariant` | Rust rejected an impossible internal state without panicking | Never retry automatically; expose a recoverable generic failure |
+
+Every exported failure carries the category, a generated `MobileOperation`
+enum value, and a `RetryAdvice` value from `Never`, `RetryWithBackoff`,
+`RefreshThenRetry`, or `UserActionRequired`. Operation names are generated
+contract values, never unconstrained strings. An optional safe-detail code may
+distinguish documented subcases but is diagnostic rather than user-facing.
+Kotlin maps this structured failure into its sealed presentation-error model
+and owns localized copy.
+
+Overlapping source failures use this normative mapping:
+
+| Operation context or source condition | Required category |
+|---|---|
+| Schema version is newer than this client before migration begins | `NewerSchema` |
+| Review compare-and-swap returns core `ReviewUpdate::Conflict` | `ReviewConflict` |
+| Any other session token or expected revision is stale | `StaleRevision` |
+| A migration statement fails after the migration transaction begins and rollback succeeds | `MigrationFailed` |
+| SQLite remains busy before a migration transaction begins, or during an ordinary operation, after bounded waiting | `StorageBusy` |
+| A required database or local asset cannot be located or opened before a usable handle exists | `StorageUnavailable` |
+| A filesystem or database read/write fails after a usable handle exists | `StorageIo` |
+| The resource kind is recognized but unsupported | `UnsupportedResource` |
+| Bytes claim a supported format but are malformed | `ParseFailure` |
+| A stable domain identifier has no record after storage opens successfully | `NotFound` |
+| A validated conversion or calculation exceeds its numeric domain | `NumericOverflow` |
+| Caller input violates another documented precondition | `InvalidArgument` |
+| No documented category applies to an impossible internal state | `InternalInvariant` |
+
+The facade must classify by operation phase, not by matching source-error text.
+Rust and generated-Kotlin contract tests cover every mapping row, including
+busy-before-migration versus busy-after-transaction-start, unsupported versus
+malformed resources, and unavailable-before-open versus I/O-after-open.
+
+Rust source chains, SQL, database paths, transcript or capture text, raw feed
+URLs, credentials, response bodies, and database contents never cross UniFFI
+as error detail. Kotlin-owned HTTP and Android framework failures remain outside
+`MobileErrorCategory`, but the presentation layer may map them beside facade
+failures without erasing their transport or platform origin. Adding, removing,
+or changing a category, operation, retry meaning, or safe-detail code is a
+mobile-facade contract change and requires Rust and generated-Kotlin tests.
