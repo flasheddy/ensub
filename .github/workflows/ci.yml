@@ -78,6 +78,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.93.0
+          components: clippy
       - run: rustup target add aarch64-linux-android x86_64-linux-android
       - uses: taiki-e/install-action@v2
         with:
