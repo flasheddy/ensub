@@ -12,7 +12,8 @@ rules remain authoritative in [`AGENTS.md`](../AGENTS.md).
 - Desktop toolkit: pinned `libcosmic` Git revision
 - Web target: `wasm32-unknown-unknown`
 - Static-site tooling: Bun 1.3.14, Playwright 1.62.1, and Chromium
-- Android spike: JDK 17, Android SDK/NDK, Gradle 8.13, and `cargo-ndk`
+- Android client: JDK 17, Android SDK API 37.0, build tools 37.0.0, Android NDK,
+  Gradle 8.13, and `cargo-ndk`
 
 The committed `Cargo.lock` is part of the application workspace and must be
 used for reproducible installation and validation.
@@ -36,7 +37,7 @@ crates/
   web_site/           optional online Ensub Context application
 bindings/
   ensub-uniffi/       native-client facade over the portable Rust engines
-android/              Kotlin, Compose, and in-activity Media3 Spike 1 client
+android/              Kotlin, Compose, and Media3 native client; Spike 1 baseline and active Spike 2 track
 packaging/             local release scripts and desktop integration
 scripts/               canonical verification entry point
 tools/
@@ -100,16 +101,27 @@ Production Rust paths must not use `.unwrap()`, `.expect()`, or `panic!`.
 Tests may use them to make fixture failures explicit. Library crates define
 typed errors with `thiserror`; binary application boundaries use `anyhow`.
 
-## Native Android Spike
+## Native Android Client
 
-Spike 1 proves the `Rust -> UniFFI -> Kotlin/Compose` path with the committed
-synthetic Player fixture and in-activity Media3 playback. It deliberately does
-not include `MediaSessionService`, background playback, production SQLite, or
-network RSS fetching. See [Android UniFFI Spike 1 Design](android-uniffi-spike-1-design.md)
-for the binding and ownership contract.
+The checked-in Android project is the delivered Spike 1 baseline. It proves the
+`Rust -> UniFFI -> Kotlin/Compose` path with the committed synthetic Player
+fixture and in-activity Media3 playback. The current implementation does not yet
+include `MediaSessionService`, background playback, production SQLite, or
+network RSS fetching.
+
+Milestone 6 / v0.3.0 is the active client track, and Spike 2 background playback
+is the current implementation target. It moves the sole Media3 player into a
+`MediaSessionService`, connects Compose through `MediaController`, and adds
+system media controls and Android lifecycle handling without pulling forward
+Spike 3 storage/ingestion or Spike 4 review scope. The active behavioral
+contract is the [Milestone 6 PRD](../.private/prd.md). See
+[Android Agent Guidelines](../android/AGENTS.md) for implementation boundaries,
+[Android README](../android/README.md) for the runnable baseline, and
+[Android UniFFI Spike 1 Design](android-uniffi-spike-1-design.md) for the
+historical integration design.
 
 Set `ANDROID_HOME` or `ANDROID_SDK_ROOT`, install the Rust Android targets and
-`cargo-ndk`, then run the opt-in verification gate:
+`cargo-ndk`, then run the canonical Android verification gate:
 
 ```bash
 rustup target add aarch64-linux-android x86_64-linux-android
@@ -117,20 +129,32 @@ cargo install cargo-ndk
 sh scripts/verify.sh android
 ```
 
-The gate builds `libensub_uniffi.so` for `arm64-v8a` and `x86_64`, generates
-Kotlin bindings under `android/app/build`, runs JVM tests and lint, and builds
-both the debug application and instrumentation APK. Generated bindings and
-native libraries are not committed. Run connected instrumentation separately
-when an emulator or device is available:
+The gate tests and lints `ensub-uniffi`, builds `libensub_uniffi.so` for
+`arm64-v8a` and `x86_64`, generates Kotlin bindings under `android/app/build`,
+runs JVM tests and Android lint, and builds both the debug application and
+instrumentation APK. Generated bindings and native libraries are not committed.
+The dedicated Android CI job runs this gate, but it does not boot an emulator.
+
+Run connected instrumentation separately when an emulator or device is
+available:
 
 ```bash
 cd android
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-Android verification is intentionally not part of `scripts/verify.sh all` yet.
-This keeps the established Rust/WASM/PWA gates usable on hosts without the
-Android SDK and NDK while the native toolchain is still a spike dependency.
+The delivered connected test verifies native loading and the bundled overlap
+fixture. Spike 2 connected tests must also cover manifest/service wiring,
+controller reconnection, permission states, and lifecycle behavior on API 26
+and API 37. Record the emulator API level and report any connected or physical-
+device cases that were not run. Notification, lock-screen, incoming-call,
+wired-headset, Bluetooth, and detached-UI behavior require separately recorded
+physical `arm64-v8a` evidence; build-only CI is not evidence for those cases.
+
+Android verification remains intentionally separate from
+`scripts/verify.sh all`. This keeps the established Rust/WASM/PWA gates usable
+on hosts without the Android SDK and NDK while the dedicated Android CI job
+continues to enforce the native build gate.
 
 ## WASM Validation
 
