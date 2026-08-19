@@ -10,7 +10,7 @@ perform a tag, push, upload, deployment, or hosted release.
 |---|---|---|
 | 1. Core v0.1 baseline documented | Pass | Root README and changelog record stable v0.1.0 and verified `v0.1.0-rc1` baseline. |
 | 2. CORS and no-CORS feeds | Pass | `player.spec.mjs` uses `fixture-server.mjs` for a real cross-origin allowed feed and a blocked response; the visible status names CORS only as a possible cause. |
-| 3. VTT/SRT equivalence and typed failures | Pass | `language_engine/tests/ingestion.rs` and `wasm_bridge/tests/ingestion.rs`. |
+| 3. VTT/SRT equivalence and typed failures | Pass | `language_engine/tests/transcript.rs`, `language_engine/tests/portable_ingestion.rs`, and `wasm_bridge/tests/ingestion.rs`. |
 | 4. Cue synchronization and follow behavior | Pass | `core_engine/tests/media.rs`, `wasm_bridge/tests/player.rs`, `audio-host.test.mjs`, and Player browser seek/follow/scroll tests cover overlap, gap, seek, rate events, manual follow, stable scrolling, and active rows. |
 | 5. Offline token lookup | Pass | Player offline lookup tests use Rust UTF-16 spans and the bundled compressed lexicon. |
 | 6. Structured capture and identity reconciliation | Pass | `wasm_bridge/tests/player.rs`, `wasm_bridge/tests/learning.rs`, and the no-GUID-to-GUID cross-origin browser test preserve the episode row and idempotent capture. |
@@ -38,8 +38,10 @@ perform a tag, push, upload, deployment, or hosted release.
 
 ## Tag Preconditions
 
-1. Run the exact twelve-command v0.2.0 verification suite from a clean local
-   branch and retain the command results with this audit.
+1. Run the maintained seven-mode v0.2.0 verification sequence from a clean
+   local branch with `scripts/verify.sh`: `rust`, `wasm`, `web`,
+   `release-smoke`, `hardening`, `secrets`, and `release`. Retain the command
+   results with this audit.
 2. Run `sh scripts/verify.sh hardening` and review the complete working-tree
    diff, including generated version metadata changes.
 3. Confirm no unapproved remote operation is included. Tagging, pushing, and
