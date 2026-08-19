@@ -35,6 +35,7 @@ The repository includes these implemented surfaces:
 | Ensub Player | `crates/web_player` | Frozen v0.2.0 reference PWA with synchronized, locally cached podcast transcripts; maintenance and regression only |
 | Ensub Core sandbox | `crates/web_sandbox` | Offline real-lexicon parsing, capture, SRS review, snapshots, and multi-tab coordination |
 | Ensub Context | `crates/web_site` | Optional online contextual analysis and private cloud-backed capture history |
+| Android Spike 1 | `android` | Active Kotlin/Compose client proving UniFFI-backed transcript synchronization with in-activity Media3 playback |
 
 The native desktop packaging targets Linux with COSMIC Desktop.
 
@@ -120,6 +121,8 @@ and the contextual web assistant setup.
 | [Architecture](docs/architecture.md) | Crate boundaries, data flow, storage adapters, and concurrency model |
 | [Development](docs/development.md) | Workspace layout, validation commands, tests, web builds, and release builds |
 | [Platform Status](docs/platform-status.md) | Frozen PWA/WASM scope, regression policy, and active native Android track |
+| [Android Spike 1 Design](docs/android-uniffi-spike-1-design.md) | UniFFI facade, DTO contract, Android ownership, build flow, and deferred scope |
+| [Android Spike 1](android/README.md) | Android prerequisites, native generation, Gradle build, tests, and APK locations |
 | [Data and Privacy](docs/data-and-privacy.md) | Native and browser storage, path overrides, concurrency, backup, and reset behavior |
 | [v0.2.0 Release Audit](docs/release-v0.2.0-audit.md) | PRD acceptance criteria, release-gate evidence, and tag preconditions |
 | [Offline Lexicon](docs/lexicon.md) | Corpus provenance, generated artifacts, extraction, and regeneration |

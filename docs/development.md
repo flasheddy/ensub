@@ -12,6 +12,7 @@ rules remain authoritative in [`AGENTS.md`](../AGENTS.md).
 - Desktop toolkit: pinned `libcosmic` Git revision
 - Web target: `wasm32-unknown-unknown`
 - Static-site tooling: Bun 1.3.14, Playwright 1.62.1, and Chromium
+- Android spike: JDK 17, Android SDK/NDK, Gradle 8.13, and `cargo-ndk`
 
 The committed `Cargo.lock` is part of the application workspace and must be
 used for reproducible installation and validation.
@@ -33,10 +34,14 @@ crates/
   web_player/         installable podcast and transcript workspace
   web_sandbox/        offline Ensub Core reference harness
   web_site/           optional online Ensub Context application
+bindings/
+  ensub-uniffi/       native-client facade over the portable Rust engines
+android/              Kotlin, Compose, and in-activity Media3 Spike 1 client
 packaging/             local release scripts and desktop integration
 scripts/               canonical verification entry point
 tools/
   lexicon_builder/    reproducible dictionary asset generation
+  uniffi_bindgen/     workspace-pinned Kotlin binding generator
 ```
 
 The detailed dependency graph is in [Architecture](architecture.md).
@@ -94,6 +99,38 @@ cargo test -p ensub-applet
 Production Rust paths must not use `.unwrap()`, `.expect()`, or `panic!`.
 Tests may use them to make fixture failures explicit. Library crates define
 typed errors with `thiserror`; binary application boundaries use `anyhow`.
+
+## Native Android Spike
+
+Spike 1 proves the `Rust -> UniFFI -> Kotlin/Compose` path with the committed
+synthetic Player fixture and in-activity Media3 playback. It deliberately does
+not include `MediaSessionService`, background playback, production SQLite, or
+network RSS fetching. See [Android UniFFI Spike 1 Design](android-uniffi-spike-1-design.md)
+for the binding and ownership contract.
+
+Set `ANDROID_HOME` or `ANDROID_SDK_ROOT`, install the Rust Android targets and
+`cargo-ndk`, then run the opt-in verification gate:
+
+```bash
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-ndk
+sh scripts/verify.sh android
+```
+
+The gate builds `libensub_uniffi.so` for `arm64-v8a` and `x86_64`, generates
+Kotlin bindings under `android/app/build`, runs JVM tests and lint, and builds
+both the debug application and instrumentation APK. Generated bindings and
+native libraries are not committed. Run connected instrumentation separately
+when an emulator or device is available:
+
+```bash
+cd android
+./gradlew :app:connectedDebugAndroidTest
+```
+
+Android verification is intentionally not part of `scripts/verify.sh all` yet.
+This keeps the established Rust/WASM/PWA gates usable on hosts without the
+Android SDK and NDK while the native toolchain is still a spike dependency.
 
 ## WASM Validation
 
@@ -255,6 +292,7 @@ Run an individual verification gate or the complete local sequence:
 sh scripts/verify.sh rust
 sh scripts/verify.sh wasm
 sh scripts/verify.sh web
+sh scripts/verify.sh android
 sh scripts/verify.sh release-smoke
 sh scripts/verify.sh secrets
 sh scripts/verify.sh hardening

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "bindings/ensub-uniffi",
   "crates/cli",
   "crates/cosmic_applet",
   "crates/cosmic_gui",
@@ -11,6 +12,7 @@ members = [
   "crates/theme",
   "crates/tui",
   "crates/wasm_bridge",
+  "tools/uniffi_bindgen",
   "tools/lexicon_builder",
 ]
 
@@ -50,6 +52,7 @@ ensub-theme = { path = "crates/theme" }
 tokio = { version = "1", features = ["process", "rt", "time"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "=0.2.0"
+uniffi = "0.32.0"
 url = "2.5"
 uuid = { version = "1.24", features = ["v5"] }
 wasm-bindgen = "0.2.127"

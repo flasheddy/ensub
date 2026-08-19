@@ -43,6 +43,10 @@ flowchart TB
     wasm --> core
     wasm --> language
 
+    android["Android / Compose / Media3"] --> uniffi["ensub-uniffi"]
+    uniffi --> core
+    uniffi --> language
+
     builder["ensub-lexicon-builder"] --> language
     builder --> sqlite
 
@@ -66,7 +70,10 @@ flowchart TB
 | `crates/web_player` | none | Frozen v0.2.0 reference PWA: installable audio workspace, synchronized transcript DOM, IndexedDB player cache, and Web Locks coordination; no new client features |
 | `crates/web_sandbox` | none | Offline static Ensub Core reference harness, bundled WASM/lexicon assets, Web Locks coordination, and service worker |
 | `crates/web_site` | none | Separate optional Ensub Context assistant using anonymous Supabase sessions and an authenticated LLM Edge Function |
+| `bindings/ensub-uniffi` | `ensub-uniffi` | UniFFI facade exposing portable fixture parsing and cue synchronization to native clients |
+| `android` | none | Active Kotlin/Compose client; Spike 1 owns in-activity Media3 playback and delegates transcript policy through UniFFI |
 | `tools/lexicon_builder` | `ensub-lexicon-builder` | Reproducible native and browser lexicon artifact generation |
+| `tools/uniffi_bindgen` | `ensub-uniffi-bindgen` | Workspace-pinned Kotlin binding generator matching the UniFFI facade version |
 | `packaging` | none | COSMIC desktop entries, AppStream metadata, icons, and installation script |
 
 All Cargo members use Rust edition 2021. The workspace pins one dependency

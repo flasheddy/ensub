@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-workspace_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+workspace_root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$workspace_root"
 mode=${1:-all}
 
@@ -78,6 +78,29 @@ verify_web() {
   )
 }
 
+verify_android() {
+  command -v cargo-ndk >/dev/null 2>&1 || {
+    echo "cargo-ndk is required for the Android verification mode" >&2
+    exit 1
+  }
+  if [ -z "${ANDROID_HOME:-}" ] && [ -z "${ANDROID_SDK_ROOT:-}" ]; then
+    echo "ANDROID_HOME or ANDROID_SDK_ROOT must point to the Android SDK" >&2
+    exit 1
+  fi
+
+  cargo test -p ensub-uniffi
+  cargo clippy -p ensub-uniffi --all-targets -- -D warnings
+  (
+    cd android
+    ./gradlew \
+      :app:testDebugUnitTest \
+      :app:lintDebug \
+      :app:assembleDebug \
+      :app:assembleDebugAndroidTest \
+      --no-daemon
+  )
+}
+
 verify_release_smoke() (
   stage_dir=$(mktemp -d "${TMPDIR:-/tmp}/ensub-verify-stage.XXXXXX")
   trap 'rm -rf "$stage_dir"' EXIT HUP INT TERM
@@ -107,6 +130,7 @@ case "$mode" in
   rust) verify_rust ;;
   wasm) verify_wasm ;;
   web) verify_web ;;
+  android) verify_android ;;
   release-smoke) verify_release_smoke ;;
   release) sh packaging/build-release.sh ;;
   secrets) verify_secrets ;;
@@ -121,7 +145,7 @@ case "$mode" in
     sh packaging/build-release.sh
     ;;
   *)
-    echo "usage: $0 {rust|wasm|web|release-smoke|release|secrets|hardening|all}" >&2
+    echo "usage: $0 {rust|wasm|web|android|release-smoke|release|secrets|hardening|all}" >&2
     exit 2
     ;;
 esac

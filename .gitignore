@@ -15,4 +15,7 @@
 /.private/
 /prd.md
 /docs/superpowers/
+/android/.gradle/
+/android/**/build/
+/android/local.properties
 .env*
