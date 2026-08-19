@@ -65,6 +65,28 @@ jobs:
         working-directory: crates/web_sandbox
       - run: sh scripts/verify.sh web
 
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: clippy
+      - run: rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: sh scripts/verify.sh android
+
   release-smoke:
     runs-on: ubuntu-latest
     steps:
