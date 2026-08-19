@@ -1,0 +1,19 @@
+# 1. Enforce LF for text files across all platforms
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 2. Hide frozen web prototype and web sandboxes from language stats
+crates/web_player/**    linguist-detectable=false
+crates/web_sandbox/**   linguist-detectable=false
+crates/wasm_bridge/**   linguist-detectable=false
+
+# 3. Hide web bundles and markup
+*.js                    linguist-detectable=false
+*.mjs                   linguist-detectable=false
+*.css                   linguist-detectable=false
+*.html                  linguist-detectable=false
+
+# 4. Mark documentation and fixtures
+docs/**                 linguist-documentation
+fixtures/**             linguist-vendored
