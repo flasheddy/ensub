@@ -220,16 +220,138 @@ seconds. Open the popover to:
 The badge caps display at `99+`. The applet uses the default native database
 path and expects `ensub-gui` beside the applet binary or available on `PATH`.
 
-## Contextual Web Assistant
+## Ensub Core Browser Sandbox
+
+The offline Core reference harness accepts pasted text, resolves candidates
+against the real bundled lexicon, captures selected terms, and exposes one due
+review at a time. Reveal the answer, then rate recall from 0 through 5 using
+the same scheduling policy as native surfaces.
+
+The snapshot stays under `ensub.sandbox.v1` in browser `localStorage`. Each
+write takes a short Web Lock so multiple tabs cannot silently overwrite each
+other. Tabs without Web Locks remain useful for parsing and queries but disable
+writes. A healthy reset deletes the Core snapshot and any v0.1 migration
+backup. If startup migration fails, use **Export raw snapshot** in the recovery
+alert; capture, rating, and reset stay disabled for that runtime.
+
+No account or network service is used. After the service worker has installed,
+the complete harness can reload offline.
+
+## Ensub Player
+
+The installable Player opens directly into the podcast workspace. If no feeds
+have been saved, choose **Load Demo Episode** to import the bundled
+`assets/demo-fixture.json`, its transcript cues, and the synthetic two-minute
+`assets/demo.mp3`. This action is shown only for a zero-feed workspace. If the
+fixture cannot be validated, nothing is imported and the action remains
+available. You can instead enter an HTTP(S) podcast feed URL; that server must
+allow direct browser access because the Player does not use a proxy.
+
+### Playback And Transcript Following
+
+The transcript follows the DOM audio clock. Every cue active at the current
+time is highlighted, so overlapping cues can be highlighted together. The
+primary active cue is also exposed to assistive technology. Following scrolls
+smoothly to that cue; reduced-motion browser settings disable the animation.
+During a gap, the reader can remain anchored to the preceding cue.
+
+Wheel, touch, or manual scrollbar movement suspends automatic following so the
+Player does not pull the transcript away while you read. Choose **Return to
+active cue** to center the current cue and resume following. Click a cue row or
+its timestamp outside a word token to seek audio to the cue's start. Selecting
+transcript text does not seek.
+
+### Player Keys
+
+These shortcuts work from the workspace canvas and while a transcript token is
+focused:
+
+| Key | Action |
+|---|---|
+| `Space` | Play or pause |
+| `J` / Down Arrow | Go to the next cue |
+| `K` / Up Arrow | Go to the previous cue |
+| Left Arrow / Right Arrow | Skip backward or forward 5 seconds |
+| `[` / `]` | Decrease or increase playback speed |
+| `C` | Capture the open, capturable lookup |
+| `R` | Open or close Review |
+
+Speed steps are 0.75x, 1x, 1.25x, 1.5x, 1.75x, and 2x. Shortcuts are ignored
+while a form input, select, ordinary button, link, or editable region has focus,
+when a modifier key is held, and while a non-review dialog is open. In Review,
+the initially focused panel accepts `Space` or `P` to replay, `Enter` to reveal,
+`0` through `5` to rate and advance, and `R` or `Escape` to exit. Native button
+and select keys remain available after tabbing to a control. Held review keys do
+not repeat their actions. `C` is narrower: it works only once per key press when
+Capture is available and focus is on a transcript token or a non-editable lookup
+control.
+
+### Transcript Lookup And Capture
+
+Select a transcript word with a pointer, or use native `Tab` and `Shift+Tab` to
+move through token buttons. Press `Enter` on a focused token to open lookup.
+The panel uses only the bundled offline lexicon and reports plainly when no
+entry exists. If a form maps to more than one local lemma, choose the intended
+lemma from the displayed list.
+
+Opening the panel is read-only. Choose **Capture** to save the lemma, ranked
+definitions, reconstructed sentence, podcast provenance, and logical padded
+audio range as one local operation. Sentence reconstruction searches at most
+three adjacent cues and 60 lexical tokens in either direction; without terminal
+punctuation inside those limits it saves the complete bounded cue window as
+fallback context. Press `C` from an allowed lookup focus target for the same
+confirmation. Repeating the same cue/token encounter does
+not create another learning card. A different cue or episode attaches another
+encounter to the same lemma and preserves its existing review schedule.
+
+Choose **Review** to open due podcast cards without exposing the answer. Replay
+the saved logical audio slice when the enclosure is available. The captured
+headword appears above the sentence and the exact saved token is highlighted
+when that context retains token metadata. Reveal explicitly to show the lemma,
+pronunciation, part of speech, and definition, then rate recall from 0 through
+5; a saved rating advances immediately. Opening Review closes the lookup panel
+and the opaque Review surface isolates the card from the transcript. The Player
+restores the episode position and speed on exit but leaves playback paused. If
+audio is unavailable, the saved sentence remains visible and the rating
+workflow continues offline.
+
+### Offline And Local Data
+
+The Player's service worker installs the application shell, WASM runtime,
+bundled demo files, and both versioned lexicon sidecars. After installation,
+the demo, lookup, capture, review, and previously cached transcript workflows
+can reload offline. Remote audio still requires the enclosure to be cached or
+reachable. Use the browser's install action to add the Player as a standalone
+PWA.
+
+Choose **Local data** from the top bar to export the exact local learning
+snapshot and Player cache. Provider credentials are excluded. The confirmed
+reset removes only Player cache, learning data, and Ensub provider settings,
+credentials, and consent; it preserves unrelated site data and installed
+offline shell/lexicon assets. v0.2.0 does not import exported documents.
+
+Learning snapshot v1 migration runs during startup under the learning-storage
+Web Lock. Ensub first preserves the exact source at `ensub_v0.1_backup`. If
+migration cannot finish, a recovery alert marks learning storage read-only and
+offers an exact raw JSON export; playback and offline lookup remain available.
+
+Contextual provider requests occur only after **Explain in context**. The
+consent dialog previews the exact JSON request body, destination, method,
+content type, and a redacted authorization header before the first request to
+an endpoint. Its lexical data contains only the selected word, saved sentence,
+candidate local senses, and episode title. Ordinary feed, playback, lookup,
+capture, and review actions never contact the provider.
+
+## Ensub Context
 
 Enter a target word or phrase, the sentence where it appeared, and optional
 surrounding context. "Analyze & Save" returns the lemma, part of speech,
 context-specific definition, nuance, and confidence, then adds the complete
 encounter to Recent Captures.
 
-The web app creates an anonymous Supabase session automatically. Its history is
+Ensub Context creates an anonymous Supabase session automatically. Its history is
 private to that browser identity and remains separate from native SQLite. A
 network connection is required for authentication, analysis, and history.
 
-See the [Contextual Web App README](../crates/web_site/README.md) for backend
-configuration, build, preview, privacy, and deployment instructions.
+See the [Ensub Context README](../crates/web_site/README.md) for backend
+configuration, build, preview, and privacy instructions.

@@ -11,7 +11,8 @@ rules remain authoritative in [`AGENTS.md`](../AGENTS.md).
 - Native database: bundled SQLite through `rusqlite`
 - Desktop toolkit: pinned `libcosmic` Git revision
 - Web target: `wasm32-unknown-unknown`
-- Static-site tooling: Bun 1.3.14 and Node.js built-ins; no registry dependencies
+- Static-site tooling: Bun 1.3.14, Playwright 1.62.1, and Chromium
+- Android spike: JDK 17, Android SDK/NDK, Gradle 8.13, and `cargo-ndk`
 
 The committed `Cargo.lock` is part of the application workspace and must be
 used for reproducible installation and validation.
@@ -30,10 +31,17 @@ crates/
   theme/              semantic RGB themes and CSS exporter
   tui/                Ratatui reader and review panel
   wasm_bridge/        browser API and snapshot persistence
-  web_site/           static contextual vocabulary application
-packaging/             desktop integration and icons
+  web_player/         installable podcast and transcript workspace
+  web_sandbox/        offline Ensub Core reference harness
+  web_site/           optional online Ensub Context application
+bindings/
+  ensub-uniffi/       native-client facade over the portable Rust engines
+android/              Kotlin, Compose, and in-activity Media3 Spike 1 client
+packaging/             local release scripts and desktop integration
+scripts/               canonical verification entry point
 tools/
   lexicon_builder/    reproducible dictionary asset generation
+  uniffi_bindgen/     workspace-pinned Kotlin binding generator
 ```
 
 The detailed dependency graph is in [Architecture](architecture.md).
@@ -92,6 +100,38 @@ Production Rust paths must not use `.unwrap()`, `.expect()`, or `panic!`.
 Tests may use them to make fixture failures explicit. Library crates define
 typed errors with `thiserror`; binary application boundaries use `anyhow`.
 
+## Native Android Spike
+
+Spike 1 proves the `Rust -> UniFFI -> Kotlin/Compose` path with the committed
+synthetic Player fixture and in-activity Media3 playback. It deliberately does
+not include `MediaSessionService`, background playback, production SQLite, or
+network RSS fetching. See [Android UniFFI Spike 1 Design](android-uniffi-spike-1-design.md)
+for the binding and ownership contract.
+
+Set `ANDROID_HOME` or `ANDROID_SDK_ROOT`, install the Rust Android targets and
+`cargo-ndk`, then run the opt-in verification gate:
+
+```bash
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-ndk
+sh scripts/verify.sh android
+```
+
+The gate builds `libensub_uniffi.so` for `arm64-v8a` and `x86_64`, generates
+Kotlin bindings under `android/app/build`, runs JVM tests and lint, and builds
+both the debug application and instrumentation APK. Generated bindings and
+native libraries are not committed. Run connected instrumentation separately
+when an emulator or device is available:
+
+```bash
+cd android
+./gradlew :app:connectedDebugAndroidTest
+```
+
+Android verification is intentionally not part of `scripts/verify.sh all` yet.
+This keeps the established Rust/WASM/PWA gates usable on hosts without the
+Android SDK and NDK while the native toolchain is still a spike dependency.
+
 ## WASM Validation
 
 Install the target and `wasm-pack`, then run:
@@ -99,20 +139,96 @@ Install the target and `wasm-pack`, then run:
 ```bash
 cargo check -p ensub-wasm --target wasm32-unknown-unknown
 cargo clippy -p ensub-wasm --target wasm32-unknown-unknown -- -D warnings
-wasm-pack test --headless --firefox crates/wasm_bridge
+WASM_PACK_CACHE="$PWD/target/wasm-pack-cache" \
+  wasm-pack test --headless --firefox crates/wasm_bridge
 cargo tree -p ensub-wasm --target wasm32-unknown-unknown
 ```
 
 The WASM tree must not contain `rusqlite`, `libcosmic`, `ensub-gui`, or
 `ensub-applet`.
 
-## Static Web Site
+## Ensub Player
 
-The site scripts test and assemble the vanilla browser application into `dist`:
+The Ensub Player and its `ensub-wasm` adapter are feature complete and frozen
+at v0.2.0. The commands and tests in this section remain mandatory regression
+checks for applicable shared-core changes. Do not delete, weaken, skip, or
+replace existing PWA/WASM coverage solely because native Android is now the
+active client track. See [Platform Status](platform-status.md) for the allowed
+maintenance scope.
+
+The player build compiles the shared WASM package, generates theme CSS, copies
+the versioned browser lexicon sidecars, copies the complete Player asset tree,
+and verifies a fully precached PWA:
+
+```bash
+cd crates/web_player
+bun install --frozen-lockfile
+bun run test
+bun run build
+bun run verify:dist
+bun run test:browser
+```
+
+For an interactive preview, build first and then run:
+
+```bash
+bun run serve
+```
+
+The preview listens on `http://127.0.0.1:4175`. It serves MP3 content as
+`audio/mpeg` and honors byte-range requests so browser seeking behaves like a
+production static host. `bun run test:browser` starts this preview and its
+cross-origin feed fixture automatically.
+
+The committed zero-feed demo consists of `assets/demo-fixture.json` and the
+synthetic two-minute `assets/demo.mp3`. JavaScript enforces the transport bound
+and sends the fixture bytes unchanged to Rust; `EnsubPlayerWorkspace` owns
+schema validation and atomic import. The distribution check requires both demo
+files and both browser lexicon sidecars,
+`assets/lexicon-v1.manifest.json` and
+`assets/lexicon-v1.postcard.gz`, and confirms that the generated service worker
+precaches every distribution file.
+
+The browser suite covers direct zero-feed workspace rendering, demo and real
+cross-origin CORS feed import, truthful no-CORS failure rendering, DOM audio
+controls, direct `timeupdate`/`seeked` synchronization through Rust, overlap
+highlighting, manual-follow suspension and resumption, cue seeking, global
+player shortcuts and their input/dialog guards, native token focus, Enter
+lookup, guarded `C` capture, explicit and repeated media capture, persistence,
+offline reload, focus
+restoration, zero implicit provider calls, and 375px-through-desktop layout.
+WASM storage tests use a committed synthetic v0.1 golden snapshot and cover
+startup v1-to-v2 migration, immutable exact-byte backup and retry/conflict
+handling, read-only recovery after failed writes, raw export, unknown lookup,
+and cross-episode multi-context lemma association. Rust fixture and workspace tests cover
+strict schema validation, atomic import, and next/previous cue semantics across
+overlaps, gaps, and transcript boundaries.
+
+## Ensub Core Offline Sandbox
+
+The Core build compiles `ensub-wasm`, verifies/decompresses the committed
+browser lexicon, generates a content-addressed service worker, and rejects
+remote endpoint or cloud credential references:
+
+```bash
+cd crates/web_sandbox
+bun install --frozen-lockfile
+bun test
+bun run build
+bun run verify:dist
+bun run test:browser
+```
+
+The Playwright suite uses the real lexicon, records 30 warm parser samples and
+requires p95 below 100 ms, exercises reload persistence and SRS review, and
+tests multi-tab Web Locks behavior plus a controlled offline reload.
+
+## Ensub Context
+
+Context scripts test and assemble the optional online companion into `dist`:
 
 ```bash
 cd crates/web_site
-bun install --frozen-lockfile
 bun test
 bun run build
 bun run verify:dist
@@ -121,7 +237,7 @@ bun run serve
 
 The static build requires Rust 1.93 and runs the `ensub-theme-css` exporter to
 create `dist/theme.css` before copying the HTML, component CSS, JavaScript, and
-retirement service worker required by GitHub Pages. Generated theme CSS stays
+retirement service worker. Generated theme CSS stays
 ignored and is not checked in. Supabase schema and Edge Function source remain
 deployment inputs rather than browser assets. See the web app README for
 backend setup and secret names.
@@ -168,17 +284,28 @@ Generate local API documentation with:
 cargo doc --workspace --no-deps
 ```
 
-## Release Build
+## Verification and Local Release
 
-Build all installable native binaries with the lockfile:
+Run an individual verification gate or the complete local sequence:
 
 ```bash
-cargo build --release --locked \
-  -p ensub-cli \
-  -p ensub-gui \
-  -p ensub-applet
+sh scripts/verify.sh rust
+sh scripts/verify.sh wasm
+sh scripts/verify.sh web
+sh scripts/verify.sh android
+sh scripts/verify.sh release-smoke
+sh scripts/verify.sh secrets
+sh scripts/verify.sh hardening
+sh scripts/verify.sh all
 ```
 
-The current packaging script installs the GUI and applet integration files.
-It does not package `esb`, publish archives, or build the web site. Those are
-still separate release operations.
+Create only the deterministic v0.2.0 native archives with:
+
+```bash
+sh packaging/build-release.sh
+```
+
+This stages `esb`, the GUI/applet, metadata, icons, licenses, lexicon
+provenance, and third-party notices under a temporary `DESTDIR`; validates and
+smoke-tests that staged tree; then writes two archives and `SHA256SUMS` under
+`target/release-artifacts`. No verification or packaging mode publishes.

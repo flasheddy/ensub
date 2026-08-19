@@ -9,11 +9,18 @@ turns words encountered in documents or pasted text into vocabulary cards with
 an offline definition, pronunciation, source context, and deterministic SM-2
 review schedule.
 
+Ensub Core v0.1.0 is delivered and stable; `v0.1.0-rc1` is the verified
+repository baseline from which the v0.2.0 interactive Player was built. The
+PWA/Web Player is now feature complete and frozen as a reference prototype,
+and native Android is the active client track.
+
 The same Rust domain and language engines power a command-line interface, a
-terminal reader, a native COSMIC desktop application and panel applet, and
-portable WASM bindings. Native data stays in SQLite. The optional contextual
-web assistant uses an anonymous Supabase session and an OpenAI-compatible model
-without exposing provider credentials to the browser.
+terminal reader, a native COSMIC desktop application and panel applet, and the
+installable Ensub Player for synchronized podcast transcripts, offline lookup,
+capture, and review. Native data stays in SQLite. The separate Ensub Core
+sandbox is an offline browser reference harness backed by `localStorage`. The
+optional Ensub Context companion uses an anonymous Supabase session and an
+OpenAI-compatible model without exposing provider credentials to the browser.
 
 ## Included Surfaces
 
@@ -25,7 +32,10 @@ The repository includes these implemented surfaces:
 | TUI | `esb tui [FILE]` | Read Markdown or plain text, inspect and capture words, run quick reviews |
 | COSMIC GUI | `ensub-gui` | Dashboard, vocabulary library, document reader, text capture, and review sessions |
 | COSMIC applet | `ensub-applet` | Due-count badge, one-card review popover, and clipboard capture HUD |
-| Contextual web assistant | `crates/web_site` | Analyze words in their sentence context and keep a private cloud-backed capture history |
+| Ensub Player | `crates/web_player` | Frozen v0.2.0 reference PWA with synchronized, locally cached podcast transcripts; maintenance and regression only |
+| Ensub Core sandbox | `crates/web_sandbox` | Offline real-lexicon parsing, capture, SRS review, snapshots, and multi-tab coordination |
+| Ensub Context | `crates/web_site` | Optional online contextual analysis and private cloud-backed capture history |
+| Android Spike 1 | `android` | Active Kotlin/Compose client proving UniFFI-backed transcript synchronization with in-activity Media3 playback |
 
 The native desktop packaging targets Linux with COSMIC Desktop.
 
@@ -76,10 +86,10 @@ download or database setup is required.
 Build the COSMIC application and applet:
 
 ```bash
-cargo build --release -p ensub-gui -p ensub-applet
+cargo build --release -p ensub-cli -p ensub-gui -p ensub-applet
 ```
 
-For a user-local installation of the binaries, desktop entries, applet entry,
+For a user-local installation of `esb`, desktop binaries, entries, applet entry,
 metadata, and icons:
 
 ```bash
@@ -89,6 +99,15 @@ PREFIX="$HOME/.local" sh packaging/install.sh
 Ensure `$HOME/.local/bin` is on `PATH`. The applet entry can then be added from
 COSMIC panel settings. Distribution-specific COSMIC and graphics development
 packages may be required to compile `libcosmic`.
+
+Create the two deterministic local v0.2.0 archives and `SHA256SUMS` with:
+
+```bash
+sh packaging/build-release.sh
+```
+
+This command writes only under `target/release-artifacts`; it does not publish
+or upload artifacts.
 
 See [Getting Started](docs/getting-started.md) for development launch commands
 and the contextual web assistant setup.
@@ -101,9 +120,15 @@ and the contextual web assistant setup.
 | [User Guide](docs/user-guide.md) | CLI options, TUI keys, GUI navigation, applet, and web workflows |
 | [Architecture](docs/architecture.md) | Crate boundaries, data flow, storage adapters, and concurrency model |
 | [Development](docs/development.md) | Workspace layout, validation commands, tests, web builds, and release builds |
+| [Platform Status](docs/platform-status.md) | Frozen PWA/WASM scope, regression policy, and active native Android track |
+| [Android Spike 1 Design](docs/android-uniffi-spike-1-design.md) | UniFFI facade, DTO contract, Android ownership, build flow, and deferred scope |
+| [Android Spike 1](android/README.md) | Android prerequisites, native generation, Gradle build, tests, and APK locations |
 | [Data and Privacy](docs/data-and-privacy.md) | Native and browser storage, path overrides, concurrency, backup, and reset behavior |
+| [v0.2.0 Release Audit](docs/release-v0.2.0-audit.md) | PRD acceptance criteria, release-gate evidence, and tag preconditions |
 | [Offline Lexicon](docs/lexicon.md) | Corpus provenance, generated artifacts, extraction, and regeneration |
-| [Contextual Web App](crates/web_site/README.md) | Supabase setup, LLM secrets, build, preview, privacy, and deployment |
+| [Ensub Player](crates/web_player/README.md) | PWA build, local cache, direct browser fetching, and preview |
+| [Ensub Core Sandbox](crates/web_sandbox/README.md) | Offline WASM build, verification, and local preview |
+| [Ensub Context](crates/web_site/README.md) | Supabase setup, LLM secrets, build, preview, and privacy |
 
 API documentation can be generated locally with:
 
@@ -125,6 +150,9 @@ ensub-tui         terminal reader and quick-review state machine
 ensub-gui         native COSMIC desktop application and capture HUD
 ensub-applet      native COSMIC panel applet
 ensub-wasm        browser bindings and local snapshot storage
+web_player        installable podcast and synchronized-transcript workspace
+web_sandbox       offline Ensub Core reference harness
+web_site          optional online Ensub Context companion
 ```
 
 `core_engine` has no UI, database, platform, async-runtime, or WASM dependency.
@@ -145,6 +173,13 @@ cargo test --workspace
 
 WASM and static-site development has additional target and browser checks;
 they are listed in [Development](docs/development.md).
+
+The v0.2.0 release-hardening checks include production panic and placeholder
+enforcement plus generated Player artifact scanning:
+
+```bash
+sh scripts/verify.sh hardening
+```
 
 ## Lexicon Attribution
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:captions="https://podcastindex.org/namespace/1.0"
+      xml:lang="en">
+  <title>Portable Atom Fixture</title>
+  <entry>
+    <id>portable-episode</id>
+    <title>Portable Episode</title>
+    <link rel="enclosure" href="audio.mp3" type="audio/mpeg" />
+    <captions:transcript url="captions.srt" type="application/x-subrip" language="en" rel="captions" />
+  </entry>
+</feed>

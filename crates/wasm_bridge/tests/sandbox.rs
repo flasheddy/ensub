@@ -3,7 +3,7 @@ use std::io;
 
 use ensub_wasm::{
     CaptureParsedInput, DueReviewsInput, ParseInput, ReviewInput, Sandbox, SandboxError,
-    SnapshotAccess, SnapshotBackend, StatsInput,
+    SnapshotAccess, SnapshotBackend, SnapshotMigrationStatus, StatsInput,
 };
 use language_engine::{
     BrowserLexiconAsset, BrowserLexiconForm, Definition, LexiconEntry,
@@ -84,6 +84,45 @@ fn sandbox() -> Sandbox<MemoryBackend> {
         &lexicon_bytes(),
     )
     .expect("sandbox must open")
+}
+
+#[test]
+fn sandbox_facade_exposes_storage_initialization_and_recovery_export() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backend = MemoryBackend::default();
+    backend.0.insert("ensub.test".to_string(), raw_v1);
+    let mut sandbox = Sandbox::open(
+        backend,
+        "ensub.test",
+        SnapshotAccess::ReadWrite,
+        &lexicon_bytes(),
+    )
+    .expect("sandbox must open");
+
+    assert_eq!(
+        sandbox
+            .initialize_storage()
+            .expect("storage migration must succeed"),
+        SnapshotMigrationStatus::Migrated
+    );
+    assert!(!sandbox.is_read_only());
+
+    let corrupt = "{not-json".to_string();
+    let mut backend = MemoryBackend::default();
+    backend.0.insert("ensub.test".to_string(), corrupt.clone());
+    let mut recovery = Sandbox::open(
+        backend,
+        "ensub.test",
+        SnapshotAccess::ReadWrite,
+        &lexicon_bytes(),
+    )
+    .expect("sandbox must open");
+    assert!(recovery.initialize_storage().is_err());
+    assert!(recovery.is_read_only());
+    assert_eq!(
+        recovery.raw_snapshot().expect("raw snapshot must load"),
+        Some(corrupt)
+    );
 }
 
 #[test]

@@ -7,7 +7,7 @@ use sha2::Digest;
 #[test]
 fn tracked_browser_asset_has_full_pinned_corpus() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/web_site/assets/lexicon-v1.postcard.gz");
+        .join("../../crates/web_sandbox/assets/lexicon-v1.postcard.gz");
     let compressed = std::fs::read(&path).expect("tracked browser lexicon must read");
     let mut decoded = Vec::new();
     GzDecoder::new(compressed.as_slice())
@@ -29,7 +29,7 @@ fn tracked_browser_asset_has_full_pinned_corpus() {
 #[test]
 fn tracked_manifest_matches_browser_asset_bytes_and_sources() {
     let assets =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/web_site/assets");
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/web_sandbox/assets");
     let compressed = std::fs::read(assets.join("lexicon-v1.postcard.gz"))
         .expect("tracked browser lexicon must read");
     let manifest: serde_json::Value = serde_json::from_slice(

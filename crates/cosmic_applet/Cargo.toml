@@ -21,3 +21,6 @@ chrono.workspace = true
 libcosmic = { workspace = true, features = ["applet-token", "tokio", "wayland"] }
 thiserror.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,22 +1,36 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io;
 
 use chrono::{DateTime, Duration, Utc};
 use core_engine::{
-    initial_review_state, Capture, ContextId, ContextRecord, ReviewRating, ReviewUpdate,
-    StorageAdapter, WordId, WordRecord,
+    calculate_padded_audio_slice, initial_review_state, Capture, ContextId, ContextRecord,
+    CueRange, PodcastContextDraft, PodcastContextQuality, PodcastEpisodeProvenance,
+    PodcastFeedProvenance, PodcastStorageAdapter, ReviewQueueStorageAdapter, ReviewRating,
+    ReviewUpdate, StorageAdapter, TranscriptFormat, TranscriptProvenance, TranscriptToken, WordId,
+    WordRecord,
 };
-use ensub_wasm::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
+use ensub_wasm::{
+    SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotMigrationStatus, SnapshotStorage,
+    V01_BACKUP_STORAGE_KEY,
+};
+use language_engine::{podcast_capture_from_entry, Definition, LexiconEntry};
 
 #[derive(Default)]
 struct MemoryBackend {
     values: BTreeMap<String, String>,
     fail_next_store: bool,
+    fail_store_key: Option<String>,
+    load_count: Cell<u64>,
 }
 
 impl MemoryBackend {
     fn value(&self, key: &str) -> Option<&str> {
         self.values.get(key).map(String::as_str)
+    }
+
+    fn load_count(&self) -> u64 {
+        self.load_count.get()
     }
 }
 
@@ -24,11 +38,12 @@ impl SnapshotBackend for MemoryBackend {
     type Error = io::Error;
 
     fn load(&self, key: &str) -> Result<Option<String>, Self::Error> {
+        self.load_count.set(self.load_count.get().saturating_add(1));
         Ok(self.values.get(key).cloned())
     }
 
     fn store(&mut self, key: &str, value: &str) -> Result<(), Self::Error> {
-        if self.fail_next_store {
+        if self.fail_next_store || self.fail_store_key.as_deref() == Some(key) {
             self.fail_next_store = false;
             return Err(io::Error::new(io::ErrorKind::StorageFull, "quota"));
         }
@@ -74,6 +89,55 @@ fn storage(backend: MemoryBackend) -> SnapshotStorage<MemoryBackend> {
     SnapshotStorage::new(backend, "ensub.test", SnapshotAccess::ReadWrite)
 }
 
+fn podcast_capture(cue_id: &str) -> core_engine::PodcastCapture {
+    let range = CueRange::try_new(cue_id.to_string(), cue_id.to_string(), 1_000, 2_000)
+        .expect("fixture range must be valid");
+    let draft = PodcastContextDraft {
+        sentence: "We went home.".to_string(),
+        quality: PodcastContextQuality::CompleteSentence,
+        feed: PodcastFeedProvenance {
+            source_url: "https://example.test/feed.xml".to_string(),
+            title: "Test Feed".to_string(),
+        },
+        episode: PodcastEpisodeProvenance {
+            internal_id: "episode-1".to_string(),
+            publisher_guid: None,
+            title: "Episode".to_string(),
+            published_at: None,
+            enclosure_url: "https://example.test/audio.mp3".to_string(),
+        },
+        transcript: TranscriptProvenance {
+            url: "https://example.test/transcript.vtt".to_string(),
+            format: TranscriptFormat::WebVtt,
+            language: Some("en".to_string()),
+        },
+        selected_cue_id: cue_id.to_string(),
+        selected_token: TranscriptToken::try_new("went".to_string(), 3, 7)
+            .expect("fixture token must be valid"),
+        cue_range: range.clone(),
+        playback_position_ms: 1_500,
+        audio_slice: calculate_padded_audio_slice(
+            "https://example.test/audio.mp3".to_string(),
+            &range,
+            None,
+        )
+        .expect("fixture slice must be valid"),
+    };
+    podcast_capture_from_entry(
+        draft,
+        LexiconEntry {
+            lemma: "go".to_string(),
+            phonetic: "go".to_string(),
+            definitions: vec![Definition {
+                part_of_speech: "verb".to_string(),
+                text: "move".to_string(),
+            }],
+        },
+        timestamp(10),
+    )
+    .expect("fixture capture must build")
+}
+
 #[test]
 fn capture_round_trip_uses_versioned_snapshot_and_survives_reopen() {
     let mut first_session = storage(MemoryBackend::default());
@@ -95,7 +159,7 @@ fn capture_round_trip_uses_versioned_snapshot_and_survives_reopen() {
     assert!(saved.word_created);
     assert_eq!(saved.contexts_created, 1);
     assert_eq!(raw["format"], "ensub-browser-storage");
-    assert_eq!(raw["schemaVersion"], 1);
+    assert_eq!(raw["schemaVersion"], 2);
     assert_eq!(raw["revision"], 1);
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].word.lemma, "immersion");
@@ -235,31 +299,416 @@ fn invalid_batch_and_failed_backend_write_leave_snapshot_unchanged() {
 }
 
 #[test]
-fn corrupt_and_newer_snapshots_are_preserved_until_explicit_reset() {
+fn corrupt_and_newer_snapshots_enter_read_only_recovery_and_are_preserved() {
     let mut corrupt = MemoryBackend::default();
     corrupt
         .values
         .insert("ensub.test".to_string(), "{not-json".to_string());
-    let mut storage = storage(corrupt);
+    let mut corrupt_storage = storage(corrupt);
     assert!(matches!(
-        storage.due_count(timestamp(10)),
+        corrupt_storage.initialize(),
         Err(SnapshotError::CorruptSnapshot(_))
     ));
-    assert_eq!(storage.backend().value("ensub.test"), Some("{not-json"));
-
-    storage
-        .backend_mut()
-        .values
-        .insert(
-            "ensub.test".to_string(),
-            r#"{"format":"ensub-browser-storage","schemaVersion":2,"revision":0,"words":{},"contexts":{},"reviewStates":{}}"#.to_string(),
-        );
+    assert!(corrupt_storage.is_read_only());
     assert!(matches!(
-        storage.due_count(timestamp(10)),
-        Err(SnapshotError::UnsupportedSchema { actual: 2, .. })
+        corrupt_storage.reset(),
+        Err(SnapshotError::ReadOnly)
     ));
-    storage.reset().expect("explicit reset must clear storage");
+    assert_eq!(
+        corrupt_storage.backend().value("ensub.test"),
+        Some("{not-json")
+    );
+
+    let raw_newer = r#"{"format":"ensub-browser-storage","schemaVersion":3,"revision":0,"words":{},"contexts":{},"reviewStates":{},"podcastContexts":{}}"#;
+    let mut newer = MemoryBackend::default();
+    newer
+        .values
+        .insert("ensub.test".to_string(), raw_newer.to_string());
+    let mut newer_storage = storage(newer);
+    assert!(matches!(
+        newer_storage.initialize(),
+        Err(SnapshotError::UnsupportedSchema { actual: 3, .. })
+    ));
+    assert!(newer_storage.is_read_only());
+    assert!(matches!(
+        newer_storage.reset(),
+        Err(SnapshotError::ReadOnly)
+    ));
+    assert_eq!(newer_storage.backend().value("ensub.test"), Some(raw_newer));
+}
+
+#[test]
+fn initialization_backs_up_and_migrates_a_v1_snapshot() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    let mut storage = storage(backend);
+
+    assert_eq!(
+        storage.initialize().expect("v1 migration must succeed"),
+        SnapshotMigrationStatus::Migrated
+    );
+    assert_eq!(
+        storage.backend().value(V01_BACKUP_STORAGE_KEY),
+        Some(raw_v1.as_str())
+    );
+    let upgraded: serde_json::Value = serde_json::from_str(
+        storage
+            .backend()
+            .value("ensub.test")
+            .expect("v2 must exist"),
+    )
+    .expect("v2 must be JSON");
+    assert_eq!(upgraded["schemaVersion"], 2);
+    assert_eq!(upgraded["revision"], 8);
+    assert_eq!(upgraded["podcastContexts"], serde_json::json!({}));
+    let old = storage
+        .review_state(&WordId::new("word-v01"))
+        .expect("migrated review must query")
+        .expect("migrated review must remain");
+    assert_eq!(old.repetitions, 0);
+    assert_eq!(old.interval_days, 0);
+    let cards = storage
+        .due_reviews(timestamp(10))
+        .expect("migrated card must query");
+    assert!(cards.iter().any(|card| card.word.lemma == "immersion"));
+}
+
+#[test]
+fn initialization_does_not_rewrite_empty_or_current_storage() {
+    let mut empty = storage(MemoryBackend::default());
+    assert_eq!(
+        empty.initialize().expect("empty storage must initialize"),
+        SnapshotMigrationStatus::Empty
+    );
+    assert!(empty.backend().values.is_empty());
+
+    let raw_v2 = r#"{"format":"ensub-browser-storage","schemaVersion":2,"revision":4,"words":{},"contexts":{},"reviewStates":{},"podcastContexts":{}}"#;
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v2.to_string());
+    let mut current = storage(backend);
+    assert_eq!(
+        current.initialize().expect("v2 storage must initialize"),
+        SnapshotMigrationStatus::Current
+    );
+    assert_eq!(current.backend().value("ensub.test"), Some(raw_v2));
+    assert_eq!(current.backend().value(V01_BACKUP_STORAGE_KEY), None);
+}
+
+#[test]
+fn identical_backup_allows_migration_retry_without_overwriting_backup() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    backend
+        .values
+        .insert(V01_BACKUP_STORAGE_KEY.to_string(), raw_v1.clone());
+    backend.fail_store_key = Some(V01_BACKUP_STORAGE_KEY.to_string());
+    let mut storage = storage(backend);
+
+    assert_eq!(
+        storage
+            .initialize()
+            .expect("identical backup must permit retry"),
+        SnapshotMigrationStatus::Migrated
+    );
+    assert_eq!(
+        storage.backend().value(V01_BACKUP_STORAGE_KEY),
+        Some(raw_v1.as_str())
+    );
+}
+
+#[test]
+fn conflicting_backup_aborts_and_latches_read_only_recovery() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    backend.values.insert(
+        V01_BACKUP_STORAGE_KEY.to_string(),
+        "different snapshot".to_string(),
+    );
+    let mut storage = storage(backend);
+
+    assert!(matches!(
+        storage.initialize(),
+        Err(SnapshotError::BackupConflict)
+    ));
+    assert!(storage.is_read_only());
+    assert_eq!(
+        storage.raw_snapshot().expect("raw export must load"),
+        Some(raw_v1)
+    );
+    assert!(matches!(
+        storage.save_capture(&capture("word-a", "alpha", timestamp(10))),
+        Err(SnapshotError::ReadOnly)
+    ));
+}
+
+#[test]
+fn corrupt_v1_aborts_read_only_without_creating_a_backup() {
+    let raw = r#"{"format":"ensub-browser-storage","schemaVersion":1}"#;
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw.to_string());
+    let mut storage = storage(backend);
+
+    assert!(matches!(
+        storage.initialize(),
+        Err(SnapshotError::CorruptSnapshot(_))
+    ));
+    assert!(storage.is_read_only());
+    assert_eq!(storage.backend().value(V01_BACKUP_STORAGE_KEY), None);
+    assert_eq!(
+        storage.raw_snapshot().expect("raw export must load"),
+        Some(raw.to_string())
+    );
+}
+
+#[test]
+fn migration_write_failures_preserve_recovery_data_and_latch_read_only() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backup_failure = MemoryBackend::default();
+    backup_failure
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    backup_failure.fail_store_key = Some(V01_BACKUP_STORAGE_KEY.to_string());
+    let mut backup_storage = storage(backup_failure);
+    assert!(matches!(
+        backup_storage.initialize(),
+        Err(SnapshotError::Backend { .. })
+    ));
+    assert!(backup_storage.is_read_only());
+    assert_eq!(
+        backup_storage.backend().value("ensub.test"),
+        Some(raw_v1.as_str())
+    );
+    assert_eq!(backup_storage.backend().value(V01_BACKUP_STORAGE_KEY), None);
+
+    let mut active_failure = MemoryBackend::default();
+    active_failure
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    active_failure.fail_store_key = Some("ensub.test".to_string());
+    let mut storage = storage(active_failure);
+    assert!(matches!(
+        storage.initialize(),
+        Err(SnapshotError::Backend { .. })
+    ));
+    assert!(storage.is_read_only());
+    assert_eq!(storage.backend().value("ensub.test"), Some(raw_v1.as_str()));
+    assert_eq!(
+        storage.backend().value(V01_BACKUP_STORAGE_KEY),
+        Some(raw_v1.as_str())
+    );
+}
+
+#[test]
+fn raw_export_falls_back_to_backup_and_healthy_reset_removes_both_keys() {
+    let raw_v1 = include_str!("fixtures/browser-snapshot-v1.json").to_string();
+    let mut backup_only = MemoryBackend::default();
+    backup_only
+        .values
+        .insert(V01_BACKUP_STORAGE_KEY.to_string(), raw_v1.clone());
+    let backup_storage = storage(backup_only);
+    assert_eq!(
+        backup_storage
+            .raw_snapshot()
+            .expect("backup export must load"),
+        Some(raw_v1.clone())
+    );
+
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.clone());
+    let mut storage = storage(backend);
+    storage.initialize().expect("migration must succeed");
+    storage.reset().expect("healthy reset must succeed");
+
     assert_eq!(storage.backend().value("ensub.test"), None);
+    assert_eq!(storage.backend().value(V01_BACKUP_STORAGE_KEY), None);
+}
+
+#[test]
+fn failed_v1_migration_preserves_exact_original_bytes() {
+    let raw_v1 = "{\n  \"format\": \"ensub-browser-storage\", \"schemaVersion\": 1, \"revision\": 0, \"words\": {}, \"contexts\": {}, \"reviewStates\": {}\n}";
+    let mut backend = MemoryBackend::default();
+    backend
+        .values
+        .insert("ensub.test".to_string(), raw_v1.to_string());
+    backend.fail_next_store = true;
+    let mut storage = storage(backend);
+
+    assert!(matches!(
+        storage.save_capture(&capture("word-a", "alpha", timestamp(10))),
+        Err(SnapshotError::Backend { .. })
+    ));
+    assert_eq!(storage.backend().value("ensub.test"), Some(raw_v1));
+}
+
+#[test]
+fn podcast_capture_is_atomic_idempotent_and_retains_multiple_encounters() {
+    let mut storage = storage(MemoryBackend::default());
+    let first = podcast_capture("cue-1");
+    let saved = storage
+        .save_podcast_capture(&first)
+        .expect("first encounter must save");
+    let retry = storage
+        .save_podcast_capture(&first)
+        .expect("retry must be idempotent");
+    let second = storage
+        .save_podcast_capture(&podcast_capture("cue-2"))
+        .expect("second encounter must save");
+    let contexts = storage
+        .podcast_contexts(&first.capture.word.id)
+        .expect("contexts must query");
+
+    assert!(saved.word_created);
+    assert!(saved.podcast_context_created);
+    assert!(!retry.word_created);
+    assert!(!retry.podcast_context_created);
+    assert!(!second.word_created);
+    assert!(second.podcast_context_created);
+    assert_eq!(contexts.len(), 2);
+}
+
+#[test]
+fn malformed_podcast_capture_is_rejected_without_writing_or_panicking() {
+    let mut storage = storage(MemoryBackend::default());
+    let mut missing_context = podcast_capture("cue-1");
+    missing_context.capture.contexts.clear();
+
+    assert!(matches!(
+        storage.save_podcast_capture(&missing_context),
+        Err(SnapshotError::InvalidPodcastCapture)
+    ));
+    assert_eq!(storage.backend().value("ensub.test"), None);
+
+    let mut mismatched = podcast_capture("cue-1");
+    mismatched.capture.contexts[0].sentence = "Different sentence.".to_string();
+    assert!(matches!(
+        storage.save_podcast_capture(&mismatched),
+        Err(SnapshotError::InvalidPodcastCapture)
+    ));
+    assert_eq!(storage.backend().value("ensub.test"), None);
+}
+
+#[test]
+fn podcast_capture_accepts_monotonic_publisher_guid_enrichment() {
+    let mut storage = storage(MemoryBackend::default());
+    let first = podcast_capture("cue-1");
+    storage
+        .save_podcast_capture(&first)
+        .expect("capture without GUID must save");
+    let mut enriched = first.clone();
+    enriched.podcast_context.context.episode.publisher_guid = Some("publisher-guid".to_string());
+
+    let repeated = storage
+        .save_podcast_capture(&enriched)
+        .expect("GUID enrichment must remain idempotent");
+    let contexts = storage
+        .podcast_contexts(&first.capture.word.id)
+        .expect("enriched context must load");
+
+    assert!(!repeated.podcast_context_created);
+    assert_eq!(
+        contexts[0].context.episode.publisher_guid.as_deref(),
+        Some("publisher-guid")
+    );
+
+    let mut conflicting = enriched;
+    conflicting.podcast_context.context.episode.publisher_guid = Some("different-guid".to_string());
+    assert!(matches!(
+        storage.save_podcast_capture(&conflicting),
+        Err(SnapshotError::PodcastContextConflict(_))
+    ));
+}
+
+#[test]
+fn review_queue_enriches_cards_from_one_snapshot_load() {
+    let mut storage = storage(MemoryBackend::default());
+    storage
+        .save_podcast_capture(&podcast_capture("cue-1"))
+        .expect("first podcast encounter must save");
+    storage
+        .save_podcast_capture(&podcast_capture("cue-2"))
+        .expect("second podcast encounter must save");
+    storage
+        .save_capture(&capture("word-text", "text", timestamp(10)))
+        .expect("text-only capture must save");
+    let loads_before = storage.backend().load_count();
+
+    let queue = storage
+        .due_review_queue(timestamp(10), 50)
+        .expect("review queue must load");
+
+    assert_eq!(storage.backend().load_count(), loads_before + 1);
+    assert_eq!(queue.len(), 2);
+    let podcast = queue
+        .iter()
+        .find(|item| item.card.word.lemma == "go")
+        .expect("podcast card must be present");
+    assert_eq!(podcast.card.contexts.len(), 2);
+    assert_eq!(podcast.podcast_contexts.len(), 2);
+    assert!(podcast
+        .podcast_contexts
+        .windows(2)
+        .all(|pair| pair[0].context_id.as_str() < pair[1].context_id.as_str()));
+    assert_eq!(
+        podcast.podcast_contexts[0].context.audio_slice.start_ms(),
+        500
+    );
+    assert_eq!(
+        podcast.podcast_contexts[0].context.audio_slice.end_ms(),
+        2_500
+    );
+    let text_only = queue
+        .iter()
+        .find(|item| item.card.word.lemma == "text")
+        .expect("text-only card must be present");
+    assert!(text_only.podcast_contexts.is_empty());
+}
+
+#[test]
+fn review_queue_honors_due_order_limit_and_item_lookup() {
+    let mut storage = storage(MemoryBackend::default());
+    storage
+        .save_captures(&[
+            capture("word-b", "beta", timestamp(9)),
+            capture("word-a", "alpha", timestamp(10)),
+            capture("word-c", "gamma", timestamp(13)),
+        ])
+        .expect("captures must save");
+
+    let queue = storage
+        .due_review_queue(timestamp(10), 1)
+        .expect("bounded queue must load");
+    let item = storage
+        .review_item(&WordId::new("word-a"))
+        .expect("item lookup must load")
+        .expect("item must exist");
+    let missing = storage
+        .review_item(&WordId::new("missing"))
+        .expect("missing lookup must succeed");
+
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].card.word.lemma, "beta");
+    assert_eq!(item.card.word.lemma, "alpha");
+    assert!(item.podcast_contexts.is_empty());
+    assert_eq!(missing, None);
+    assert!(storage
+        .due_review_queue(timestamp(10), 0)
+        .expect("zero limit must succeed")
+        .is_empty());
 }
 
 #[test]

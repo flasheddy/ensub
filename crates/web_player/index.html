@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1e1e2e">
+  <meta name="description" content="A local-first podcast transcript player.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/icons/icon-192.png">
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Ensub Player</title>
+</head>
+<body>
+  <div class="app-shell">
+    <section id="storage-recovery" class="storage-recovery" role="alert" hidden>
+      <div>
+        <strong>Learning storage is read-only</strong>
+        <p id="storage-recovery-message"></p>
+        <p id="storage-recovery-status" role="status"></p>
+      </div>
+      <button id="storage-recovery-export" class="secondary-command" type="button">Export raw snapshot</button>
+    </section>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Ensub Player home"><span class="brand-mark">E</span><span>Ensub Player</span></a>
+      <div class="topbar-actions">
+        <button id="local-data-button" class="review-entry" type="button">Local data</button>
+        <button id="review-button" class="review-entry" type="button">Review <span id="review-due-count" aria-label="cards due">0</span></button>
+        <div class="network-state" id="network-state" role="status">Local workspace</div>
+      </div>
+    </header>
+
+    <aside class="library" aria-label="Podcast library">
+      <form id="feed-form" class="feed-form">
+        <label for="feed-url">Podcast feed</label>
+        <div class="feed-input-row">
+          <input id="feed-url" name="feed-url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/feed.xml" required>
+          <button id="feed-load" class="icon-command" type="submit" aria-label="Load podcast feed" title="Load podcast feed" disabled>Load</button>
+        </div>
+        <p id="feed-status" class="feed-status" role="status"></p>
+      </form>
+      <div class="library-heading">
+        <h2>Episodes</h2>
+        <span id="episode-count" aria-live="polite">0</span>
+      </div>
+      <div id="episode-list" class="episode-list"></div>
+    </aside>
+
+    <main class="reader" id="reader">
+      <section id="episode-workspace" class="episode-workspace">
+        <div id="empty-state" class="workspace-empty">
+          <div class="workspace-empty-heading">
+            <img src="./assets/demo/cover.png" alt="" width="72" height="72">
+            <div>
+              <p>Player workspace</p>
+              <h1>No episodes yet</h1>
+            </div>
+          </div>
+          <button id="demo-button" class="primary-command" type="button" disabled>Load Demo Episode</button>
+        </div>
+
+        <div id="episode-content" hidden>
+          <header class="episode-header">
+            <img id="episode-artwork" src="./assets/demo/cover.png" alt="" width="96" height="96">
+            <div class="episode-heading-copy">
+              <p id="feed-title" class="feed-title"></p>
+              <h1 id="episode-title"></h1>
+              <div class="transcript-toolbar">
+                <label for="transcript-select">Transcript</label>
+                <select id="transcript-select"></select>
+                <button id="follow-button" class="secondary-command" type="button" hidden>Return to active cue</button>
+              </div>
+            </div>
+          </header>
+          <div id="transcript-status" class="transcript-status" role="status"></div>
+          <div class="reading-grid">
+            <div id="transcript" class="transcript" aria-label="Synchronized transcript" tabindex="0"></div>
+            <aside id="lookup-inspector" class="lookup-inspector" aria-label="Word lookup" hidden>
+              <div class="lookup-heading">
+                <div><span id="lookup-surface" class="lookup-surface"></span><span id="lookup-phonetic" class="lookup-phonetic"></span></div>
+                <button id="lookup-close" class="lookup-close" type="button" aria-label="Close lookup" title="Close lookup">×</button>
+              </div>
+              <div id="lookup-body" class="lookup-body" role="status"></div>
+              <label id="lookup-choice-label" class="lookup-choice-label" for="lookup-choice" hidden>Lemma</label>
+              <select id="lookup-choice" hidden></select>
+              <button id="capture-button" class="primary-command lookup-capture" type="button" hidden>Capture</button>
+              <div id="disambiguation-actions" class="disambiguation-actions" hidden>
+                <button id="disambiguate-button" class="secondary-command" type="button">Explain in context</button>
+                <button id="provider-settings-button" class="lookup-close" type="button" aria-label="Provider settings" title="Provider settings">⚙</button>
+              </div>
+              <section id="disambiguation-result" class="disambiguation-result" aria-label="AI-generated contextual explanation" hidden>
+                <span>AI-generated context</span>
+                <p id="disambiguation-message" role="status"></p>
+              </section>
+            </aside>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="player" aria-label="Audio player">
+      <audio id="audio" preload="metadata"></audio>
+      <div class="now-playing">
+        <img id="player-artwork" src="./assets/demo/cover.png" alt="" width="48" height="48">
+        <div><strong id="player-title">No episode selected</strong><span id="player-feed">Ensub Player</span></div>
+      </div>
+      <div class="transport-controls">
+        <div class="button-row">
+          <button id="back-button" class="player-button" type="button" aria-label="Back 15 seconds" title="Back 15 seconds">-15</button>
+          <button id="play-button" class="play-button" type="button" aria-label="Play" title="Play">Play</button>
+          <button id="forward-button" class="player-button" type="button" aria-label="Forward 30 seconds" title="Forward 30 seconds">+30</button>
+        </div>
+        <div class="timeline-row">
+          <span id="elapsed">0:00</span>
+          <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Playback position">
+          <span id="remaining">-0:00</span>
+        </div>
+      </div>
+      <div class="playback-settings">
+        <label for="speed">Speed</label>
+        <select id="speed">
+          <option value="0.75">0.75x</option><option value="1" selected>1x</option>
+          <option value="1.25">1.25x</option><option value="1.5">1.5x</option>
+          <option value="1.75">1.75x</option><option value="2">2x</option>
+        </select>
+        <button id="mute-button" class="player-button" type="button" aria-label="Mute" title="Mute">Mute</button>
+        <input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume">
+      </div>
+    </footer>
+
+    <section id="review-dialog" class="review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-title" hidden>
+      <div id="review-panel" class="review-panel" tabindex="-1">
+        <header class="review-header">
+          <div>
+            <span id="review-progress" class="review-progress"></span>
+            <h2 id="review-title">Review</h2>
+          </div>
+          <button id="review-close" class="lookup-close" type="button" aria-label="Exit review" title="Exit review">×</button>
+        </header>
+        <div id="review-status" class="review-status" role="status"></div>
+        <div id="review-content" class="review-content">
+          <label id="review-context-label" for="review-context">Context</label>
+          <select id="review-context"></select>
+          <strong id="review-headword" class="review-headword"></strong>
+          <blockquote id="review-sentence" class="review-sentence"></blockquote>
+          <button id="review-play" class="review-play" type="button">Replay snippet</button>
+          <p id="review-audio-status" class="review-audio-status" role="status"></p>
+          <button id="review-reveal" class="primary-command review-reveal" type="button">Reveal answer</button>
+          <section id="review-answer" class="review-answer" aria-label="Answer" hidden>
+            <div><strong id="review-lemma"></strong><span id="review-phonetic"></span></div>
+            <span id="review-part-of-speech" class="review-part-of-speech" hidden></span>
+            <p id="review-definition"></p>
+          </section>
+          <div id="review-ratings" class="review-ratings" aria-label="Rate recall" hidden>
+            <button class="review-rating" type="button" data-rating="0">0</button>
+            <button class="review-rating" type="button" data-rating="1">1</button>
+            <button class="review-rating" type="button" data-rating="2">2</button>
+            <button class="review-rating" type="button" data-rating="3">3</button>
+            <button class="review-rating" type="button" data-rating="4">4</button>
+            <button class="review-rating" type="button" data-rating="5">5</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="provider-settings-dialog" class="provider-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-settings-title" hidden>
+      <form id="provider-settings-form" class="provider-panel">
+        <h2 id="provider-settings-title">Context provider</h2>
+        <p>Requests are sent only when you choose Explain in context.</p>
+        <label for="provider-endpoint">Endpoint</label>
+        <input id="provider-endpoint" type="url" inputmode="url" placeholder="https://provider.example/v1/chat/completions" required>
+        <label for="provider-model">Model</label>
+        <input id="provider-model" type="text" autocomplete="off" required>
+        <label for="provider-credential">Provider credential</label>
+        <input id="provider-credential" type="password" autocomplete="off" required>
+        <label class="provider-remember"><input id="provider-remember" type="checkbox"> Remember on this device</label>
+        <p id="provider-settings-message" class="provider-message" role="status"></p>
+        <div class="provider-commands">
+          <button id="provider-settings-cancel" class="secondary-command" type="button">Cancel</button>
+          <button class="primary-command" type="submit">Save settings</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="provider-consent-dialog" class="provider-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-consent-title" hidden>
+      <div class="provider-panel">
+        <h2 id="provider-consent-title">Send context to provider?</h2>
+        <p>The selected word, saved sentence, candidate local dictionary senses, and episode label leave this device. The full transcript and audio are never sent.</p>
+        <dl class="provider-request-summary">
+          <dt>Destination</dt><dd><code id="provider-request-destination"></code></dd>
+          <dt>Method</dt><dd><code id="provider-request-method"></code></dd>
+          <dt>Content-Type</dt><dd><code id="provider-request-content-type"></code></dd>
+          <dt>Authorization</dt><dd><code id="provider-request-authorization">Bearer [configured credential]</code></dd>
+        </dl>
+        <pre id="provider-payload-preview" class="provider-payload-preview"></pre>
+        <div class="provider-commands">
+          <button id="provider-consent-cancel" class="secondary-command" type="button">Cancel</button>
+          <button id="provider-consent-confirm" class="primary-command" type="button">Allow and send</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="local-data-dialog" class="provider-dialog" role="dialog" aria-modal="true" aria-labelledby="local-data-title" hidden>
+      <div class="provider-panel">
+        <h2 id="local-data-title">Local data</h2>
+        <p>Export the exact learning snapshot and Player cache stored in this browser, or reset Ensub data on this site.</p>
+        <p id="local-data-status" class="provider-message" role="status"></p>
+        <div id="local-data-confirmation" class="local-data-confirmation" hidden>
+          <p>This removes cached feeds and transcripts, learning cards, provider settings, credentials, and consent. Other site data and offline app assets are preserved.</p>
+          <button id="local-data-confirm-reset" class="danger-command" type="button">Confirm reset</button>
+        </div>
+        <div class="provider-commands">
+          <button id="local-data-close" class="secondary-command" type="button">Close</button>
+          <button id="local-data-export" class="secondary-command" type="button">Export</button>
+          <button id="local-data-reset" class="danger-command" type="button">Reset</button>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

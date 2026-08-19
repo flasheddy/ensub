@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <title>Portable RSS Fixture</title>
+    <language>en</language>
+    <item>
+      <guid>portable-episode</guid>
+      <title>Portable Episode</title>
+      <enclosure url="audio.mp3" type="audio/mpeg" />
+      <podcast:transcript url="captions.vtt" type="text/vtt" language="en" rel="captions" />
+    </item>
+  </channel>
+</rss>

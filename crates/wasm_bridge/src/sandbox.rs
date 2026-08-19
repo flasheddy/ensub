@@ -1,9 +1,7 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use core_engine::{
-    schedule_review, ReviewRating, ReviewState, ReviewUpdate, StorageAdapter, WordId,
-};
+use core_engine::{schedule_review, ReviewRating, ReviewUpdate, StorageAdapter, WordId};
 use language_engine::{
     capture_from_candidate, extract_candidates, BrowserLexicon, BrowserLexiconError, Candidate,
     Definition, ParseOptions,
@@ -11,7 +9,11 @@ use language_engine::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotStorage};
+use crate::review::review_token;
+use crate::text::utf16_offset as utf16_offset_raw;
+use crate::{
+    SnapshotAccess, SnapshotBackend, SnapshotError, SnapshotMigrationStatus, SnapshotStorage,
+};
 
 const DEFAULT_MAX_CANDIDATES: usize = 100;
 
@@ -47,6 +49,18 @@ impl<B: SnapshotBackend> Sandbox<B> {
             filtered_stopwords: report.filtered_stopwords,
             truncated_candidates: report.truncated_candidates,
         })
+    }
+
+    pub fn initialize_storage(&mut self) -> Result<SnapshotMigrationStatus, SandboxError> {
+        self.storage.initialize().map_err(Into::into)
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.storage.is_read_only()
+    }
+
+    pub fn raw_snapshot(&self) -> Result<Option<String>, SandboxError> {
+        self.storage.raw_snapshot().map_err(Into::into)
     }
 
     pub fn capture_parsed(
@@ -112,7 +126,8 @@ impl<B: SnapshotBackend> Sandbox<B> {
                         repetitions: card.state.repetitions,
                         interval_days: card.state.interval_days,
                         next_review_at_ms: card.state.next_review_at.timestamp_millis(),
-                        review_token: review_token(&card.state)?,
+                        review_token: review_token(&card.state)
+                            .map_err(|error| SandboxError::Serialization(error.to_string()))?,
                     })
                 })
                 .collect::<Result<Vec<_>, SandboxError>>()?,
@@ -125,7 +140,9 @@ impl<B: SnapshotBackend> Sandbox<B> {
             .storage
             .review_state(&word_id)?
             .ok_or(SandboxError::ReviewConflict)?;
-        if review_token(&current)? != input.review_token {
+        if review_token(&current).map_err(|error| SandboxError::Serialization(error.to_string()))?
+            != input.review_token
+        {
             return Err(SandboxError::ReviewConflict);
         }
         let rating = ReviewRating::try_from(input.rating)
@@ -220,9 +237,7 @@ fn candidate_dto(text: &str, candidate: &Candidate) -> Result<CandidateDto, Sand
 }
 
 fn utf16_offset(text: &str, byte_offset: usize) -> Result<usize, SandboxError> {
-    text.get(..byte_offset)
-        .map(|prefix| prefix.encode_utf16().count())
-        .ok_or(SandboxError::InvalidTextBoundary(byte_offset))
+    utf16_offset_raw(text, byte_offset).ok_or(SandboxError::InvalidTextBoundary(byte_offset))
 }
 
 fn candidate_id(candidate: &Candidate) -> String {
@@ -237,15 +252,6 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
     })
-}
-
-fn review_token(state: &ReviewState) -> Result<String, SandboxError> {
-    let encoded = serde_json::to_vec(state)
-        .map_err(|error| SandboxError::Serialization(error.to_string()))?;
-    Ok(encoded
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

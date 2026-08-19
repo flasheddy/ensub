@@ -1,0 +1,17 @@
+[package]
+name = "ensub-uniffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "UniFFI facade for native Ensub clients"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+core_engine = { path = "../../crates/core_engine" }
+language_engine = { path = "../../crates/language_engine" }
+thiserror.workspace = true
+uniffi.workspace = true

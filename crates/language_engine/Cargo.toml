@@ -13,8 +13,11 @@ chrono.workspace = true
 core_engine = { path = "../core_engine" }
 postcard.workspace = true
 pulldown-cmark = { workspace = true, optional = true }
+quick-xml.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sentencex.workspace = true
 thiserror.workspace = true
 unicode-segmentation.workspace = true
+url.workspace = true
 uuid.workspace = true

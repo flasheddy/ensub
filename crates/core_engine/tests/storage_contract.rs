@@ -1,7 +1,8 @@
 use chrono::{DateTime, TimeZone, Utc};
 use core_engine::{
     initial_review_state, Capture, CaptureResult, ContextId, ContextRecord, IntervalDistribution,
-    ReviewCard, ReviewState, ReviewStatistics, ReviewUpdate, StorageAdapter, WordId, WordRecord,
+    ReviewCard, ReviewQueueItem, ReviewQueueStorageAdapter, ReviewState, ReviewStatistics,
+    ReviewUpdate, StorageAdapter, WordId, WordRecord,
 };
 use std::convert::Infallible;
 
@@ -65,6 +66,20 @@ impl StorageAdapter for RecordingStorage {
 
     fn review_statistics(&self, _as_of: DateTime<Utc>) -> Result<ReviewStatistics, Self::Error> {
         Ok(ReviewStatistics::default())
+    }
+}
+
+impl ReviewQueueStorageAdapter for RecordingStorage {
+    fn due_review_queue(
+        &self,
+        _as_of: DateTime<Utc>,
+        _limit: u32,
+    ) -> Result<Vec<ReviewQueueItem>, Self::Error> {
+        Ok(Vec::new())
+    }
+
+    fn review_item(&self, _word_id: &WordId) -> Result<Option<ReviewQueueItem>, Self::Error> {
+        Ok(None)
     }
 }
 
@@ -166,4 +181,35 @@ fn commit_review_defaults_to_compare_and_swap_for_existing_adapters() {
 
     assert_eq!(update, ReviewUpdate::Updated);
     assert_eq!(storage.compared_states, vec![(expected, replacement)]);
+}
+
+#[test]
+fn review_queue_projection_is_owned_serializable_and_optional() {
+    let capture = capture();
+    let item = ReviewQueueItem {
+        card: ReviewCard {
+            word: capture.word,
+            contexts: capture.contexts,
+            state: capture.initial_review_state,
+        },
+        podcast_contexts: Vec::new(),
+    };
+    let encoded = serde_json::to_string(&item).expect("review queue item must serialize");
+    let decoded: ReviewQueueItem =
+        serde_json::from_str(&encoded).expect("review queue item must deserialize");
+    let storage = RecordingStorage::default();
+
+    assert_eq!(decoded, item);
+    assert_eq!(
+        storage
+            .due_review_queue(timestamp(), 0)
+            .expect("optional queue query must succeed"),
+        Vec::new()
+    );
+    assert_eq!(
+        storage
+            .review_item(&WordId::new("word-go"))
+            .expect("optional item query must succeed"),
+        None
+    );
 }

@@ -1,9 +1,10 @@
 # Data and Privacy
 
-Ensub's native surfaces are local-first and persist to SQLite. The optional
-contextual web assistant uses an anonymous Supabase identity, owner-scoped
-Postgres records, and an OpenAI-compatible model. Ensub does not synchronize
-native vocabulary with the web app and does not include telemetry.
+Ensub Core is local-first: native surfaces persist to SQLite and the offline
+browser sandbox persists a versioned snapshot to `localStorage`. The separate,
+optional Ensub Context companion uses an anonymous Supabase identity,
+owner-scoped Postgres records, and an OpenAI-compatible model. These products
+do not synchronize with each other and Ensub does not include telemetry.
 
 ## Native Database
 
@@ -87,22 +88,104 @@ On typical Linux systems this is `$XDG_CACHE_HOME/ensub/lexicon` or
 `$HOME/.cache/ensub/lexicon`. Cache deletion does not delete vocabulary or
 review history; Ensub recreates the verified lexicon from its embedded asset.
 
-## Contextual Web App Storage
+## Ensub Core Browser Storage
 
-The web app persists an anonymous Supabase session in browser storage. Saved
+The offline sandbox stores its versioned JSON snapshot under
+`ensub.sandbox.v1`. Capture, review, and reset mutations are serialized with
+the browser's Web Locks API. If Web Locks are unavailable, parsing and state
+queries remain available but the sandbox opens read-only.
+
+The lexicon, WASM module, application shell, and service worker are bundled in
+one same-origin static distribution. Its build rejects high-confidence embedded
+credential literals. Once installed by the service worker, the complete local
+workflow can reload offline. A healthy reset removes the active snapshot and
+its v0.1 migration backup. A failed migration instead disables reset and other
+writes for that runtime so recovery bytes remain intact.
+
+## Ensub Player Storage
+
+The player persists podcast feeds, episode metadata, selected transcript
+resources, and parsed transcript cues in one opaque Rust snapshot in the
+browser's `ensub-player` IndexedDB database. Audio is streamed and is not added
+to this snapshot. Playback position, rate, and volume are not persisted.
+
+An explicit transcript-token capture stores its normalized lemma, sentence,
+feed and episode identity, publication metadata when available, enclosure and
+transcript URLs, cue IDs, selected token span, capture playback position, host
+timestamp, and padded logical audio range in the local learning snapshot under
+`ensub.sandbox.v1`. The range references the original enclosure; Ensub does not
+copy, record, or transcode audio. Opening a lookup does not write data, and no
+lookup or capture automatically contacts an LLM or dictionary service.
+
+Feed and transcript requests connect directly from the browser to the resource
+host. Browser CORS and network policy apply. The player has no implicit proxy
+and does not send feed URLs, query strings, transcript contents, or cache
+contents to an Ensub service. The installed application shell, WASM module,
+icons, demo media, and versioned lexicon sidecars are available offline; remote
+audio and transcripts must already be cached or reachable.
+
+At startup, Ensub validates learning snapshot v1 data under the shared Web Lock,
+copies its exact bytes to `ensub_v0.1_backup`, and installs schema v2 with one
+revision increment. The backup is not overwritten: identical bytes allow a
+retry, while different bytes abort migration. Corrupt input and backup or
+active-snapshot write failures latch the current runtime read-only. The next
+launch retries from preserved storage; no durable failure marker is written.
+Both browser hosts expose a raw JSON download containing the exact active
+snapshot string, or the backup only when the active key is absent.
+
+In-player review reads due cards from the same learning snapshot. The prompt
+exposes the captured headword and, when stored, the exact selected token surface
+so the learner can identify the target in context. It does not expose the
+normalized lemma, pronunciation, or definition fields until the explicit
+Reveal action. Each prompt carries a deterministic hash of its current scheduling state; stale
+ratings from another tab are rejected and refreshed rather than replayed. Audio
+snippet replay seeks the existing media element and does not write review
+history. If the enclosure is unreachable or absent from cache, the saved text
+remains available and rating continues normally. Review checkpoints the active
+episode ID, millisecond position, and playback rate only for the in-memory
+session; exit restores those values and leaves playback paused.
+
+Optional contextual disambiguation is disabled until the user explicitly
+configures a provider and selects **Explain in context**. Provider metadata is
+stored locally. The credential is stored in `sessionStorage` by default, or in
+`localStorage` only after **Remember on this device** is selected. It is sent in
+the request authorization header and is not written to logs, fixtures, static
+assets, or the WASM module.
+
+Before the first request to each configured adapter/endpoint combination, a
+versioned disclosure shows the destination, method, content type, redacted
+authorization header, and exact serialized JSON body. The lexical user data is
+limited to the selected word, saved sentence, candidate bundled-dictionary
+senses, and minimal episode label. Ensub does not send the full transcript, feed
+contents, raw audio, learning snapshot, or playback history. Provider responses
+are schema-validated and displayed in a separate, explicitly AI-generated,
+ephemeral panel; they never replace stored local definitions. Missing
+credentials, offline/CORS failures, timeouts, HTTP errors, and malformed
+responses do not disable lookup, capture, playback, or review.
+
+## Ensub Context Storage
+
+Ensub Context persists an anonymous Supabase session in browser storage. Saved
 phrases, sentences, optional surrounding context, and generated lexical fields
 are stored in `vocabulary_records` with the anonymous user's ID. Row Level
 Security allows each authenticated session to select and insert only its own
 rows.
 
 Clearing browser site data loses access to that anonymous identity. Removing
-the anonymous user from Supabase cascades to its records. The web app requires
-a network connection and does not use the old offline service-worker or WASM
-snapshot store.
+the anonymous user from Supabase cascades to its records. Ensub Context
+requires a network connection and does not import the Core WASM snapshot.
 
 ## Backup and Restore
 
-Ensub does not yet provide a built-in export, backup, or restore command.
+Ensub Player provides a **Local data** export containing the exact learning
+snapshot text and the opaque Player IndexedDB snapshot encoded as base64. The
+document is identified by `format: "ensub-local-export"` and `schemaVersion: 1`.
+It excludes provider configuration, credentials, consent records, audio, and
+unrelated origin data. v0.2.0 does not provide an import operation.
+
+When startup migration fails, the recovery alert provides a separate raw
+snapshot export. Capture, rating, and reset remain disabled in that runtime;
+offline lookup and any review data that can still be decoded remain readable.
 
 For a consistent native backup, either:
 
@@ -117,7 +200,7 @@ backup at the same path. Preserve the original until the restored database has
 opened successfully. Ensub refuses schemas newer than the running build
 supports.
 
-The contextual web app currently has no export/import UI. The Supabase project
+Ensub Context currently has no export/import UI. The Supabase project
 operator remains responsible for database backup and retention.
 
 ## Resetting Data
@@ -125,7 +208,12 @@ operator remains responsible for database backup and retention.
 - Native: there is no reset command. Back up the database, close all Ensub
   processes, then remove the specific database only when permanent deletion is
   intended.
-- Web app: no reset/delete UI is provided. Removing an
+- Core sandbox: use its explicit reset control to delete `ensub.sandbox.v1`.
+- Player: use **Local data** to export first, then confirm reset. Reset removes
+  the Player IndexedDB snapshot, `ensub.sandbox.v1`, and only Ensub provider
+  configuration, credentials, and consent keys. It preserves unrelated origin
+  data and the service-worker shell/lexicon cache.
+- Ensub Context: no reset/delete UI is provided. Removing an
   anonymous user from Supabase deletes that user's vocabulary records.
 
 These stores never synchronize automatically. Resetting one does not affect

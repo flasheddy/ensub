@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111318">
+    <title>Ensub Core Sandbox</title>
+    <link rel="stylesheet" href="./theme.css">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header>
+      <strong>Ensub Core</strong>
+      <span data-testid="stats">0 cards | 0 due</span>
+    </header>
+    <section class="storage-recovery" data-testid="storage-recovery" role="alert" hidden>
+      <div>
+        <strong>Learning storage is read-only</strong>
+        <p data-testid="storage-recovery-message"></p>
+        <p data-testid="storage-recovery-status" role="status"></p>
+      </div>
+      <button type="button" data-testid="storage-recovery-export">Export raw snapshot</button>
+    </section>
+    <main>
+      <section aria-labelledby="parse-heading">
+        <h1 id="parse-heading">Offline parser</h1>
+        <form data-testid="parse-form">
+          <label for="source-text">Text</label>
+          <textarea id="source-text" data-testid="parse-input" rows="9" required></textarea>
+          <button type="submit">Parse</button>
+        </form>
+        <div class="candidate-list" data-testid="candidates"></div>
+        <button type="button" data-testid="capture" disabled>Capture selected</button>
+      </section>
+      <section aria-labelledby="review-heading">
+        <h2 id="review-heading">Due review</h2>
+        <div data-testid="review">No cards due</div>
+      </section>
+    </main>
+    <footer>
+      <span role="status" data-testid="status">Loading offline lexicon...</span>
+      <button type="button" class="danger" data-testid="reset">Reset local data</button>
+    </footer>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

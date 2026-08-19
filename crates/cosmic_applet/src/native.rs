@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use core_engine::{LibraryStorageAdapter, ReviewRating, ReviewUpdate, StorageAdapter};
+use core_engine::{LibraryStorageAdapter, ReviewRating, StorageAdapter};
 use cosmic::app::{Core, Task};
 use cosmic::iced::core::window;
 use cosmic::iced::window::Id;
@@ -228,7 +228,6 @@ impl NativeApplet {
                     } => DomainMessage::ReviewCommitted(
                         storage
                             .commit_review(&expected, &replacement, reviewed_at)
-                            .map(|update| update == ReviewUpdate::Updated)
                             .map_err(|error| error.to_string()),
                         reviewed_at,
                     ),

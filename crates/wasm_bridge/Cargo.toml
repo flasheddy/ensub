@@ -7,6 +7,9 @@ authors.workspace = true
 license.workspace = true
 description = "Browser bindings and local persistence for Ensub"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -16,6 +19,7 @@ core_engine = { path = "../core_engine" }
 language_engine = { path = "../language_engine" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 

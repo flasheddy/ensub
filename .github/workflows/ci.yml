@@ -1,0 +1,89 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y cmake libexpat1-dev libfontconfig1-dev libfreetype-dev libxkbcommon-dev pkg-config
+      - run: sh scripts/verify.sh rust
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.0
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y firefox
+      - run: sh scripts/verify.sh wasm
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: Swatinem/rust-cache@v2
+      - run: bun install --frozen-lockfile
+        working-directory: crates/web_sandbox
+      - run: bun install --frozen-lockfile
+        working-directory: crates/web_player
+      - run: bunx playwright install --with-deps chromium
+        working-directory: crates/web_sandbox
+      - run: sh scripts/verify.sh web
+
+  release-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update
+      - run: sudo apt-get install -y appstream cmake desktop-file-utils libexpat1-dev libfontconfig1-dev libfreetype-dev libxkbcommon-dev pkg-config util-linux
+      - run: sh scripts/verify.sh release-smoke
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: gitleaks@8.28.0
+      - run: sh scripts/verify.sh secrets
